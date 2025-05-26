@@ -3,6 +3,20 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
+import { pool } from '@/lib/db';
+import type { RowDataPacket } from 'mysql2';
+
+// TODO: SQL - CREATE TABLE para usuarios
+// CREATE TABLE users (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   username VARCHAR(255) NOT NULL UNIQUE,
+//   password_hash VARCHAR(255) NOT NULL, -- Asegúrate de hashear las contraseñas
+//   email VARCHAR(255) UNIQUE,
+//   role VARCHAR(50) DEFAULT 'Usuario',
+//   status VARCHAR(50) DEFAULT 'Activo',
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+// );
 
 const LoginSchema = z.object({
   username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
@@ -38,35 +52,41 @@ export async function handleLogin(
 
   const { username, password } = validatedFields.data;
 
-  // TODO: Reemplazar con lógica de autenticación real contra base de datos MySQL
-  console.log('Simulando autenticación para:', username);
-  if (username === 'admin' && password === 'password') {
-    // Simulación de creación de sesión/cookie aquí
-    console.log('Autenticación simulada exitosa.');
-    // No se puede llamar a redirect() directamente dentro de un try/catch que espera un Server Action.
-    // Se debe lanzar el redirect fuera o manejar el estado de forma diferente si se está dentro.
-    // Para `useFormState`, el redirect debe ocurrir después de retornar el estado.
-    // O, si no se usa useFormState, se puede hacer un redirect directo.
-    // En este caso, para que funcione con useFormState, el redirect se manejará en el cliente basado en `success: true`.
-    // O, si se quiere un redirect directo del servidor, la acción no debería ser usada con useFormState
-    // o el redirect debe ser lanzado de una manera que Next.js pueda manejar (e.g., no después de retornar un estado que cause re-render).
-    // Para este ejemplo, vamos a asumir que el redirect se maneja en el cliente tras una respuesta exitosa.
-    // O mejor aún, lanzar el redirect directamente si la acción no espera retornar un estado para el formulario.
-    // Si es un form action tradicional (sin JS o con JS progresivo), el redirect funciona.
-  } else {
-    console.log('Autenticación simulada fallida.');
+  if (!pool) {
+    console.error('Error: Connection pool not available in handleLogin.');
+    return { message: 'Error del servidor: No se pudo conectar a la base de datos.', success: false };
+  }
+
+  try {
+    console.log('Intentando autenticar para:', username);
+    // TODO: Implementar hashing y verificación de contraseñas seguras (ej. bcrypt)
+    // Por ahora, se compara texto plano (NO SEGURO PARA PRODUCCIÓN)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM users WHERE username = ? AND password_hash = ?', // En una app real, password_hash sería el hash de 'password'
+      [username, password] // Deberías comparar el hash de 'password' con el 'password_hash' almacenado
+    );
+
+    if (rows.length > 0) {
+      const user = rows[0];
+      console.log('Autenticación exitosa para el usuario:', user.username);
+      // TODO: Lógica de creación de sesión/cookie aquí
+      // Por ejemplo, usando next-auth o una librería similar, o implementando tu propia gestión de sesiones.
+      // Por ahora, redirigimos directamente.
+      redirect('/');
+      // El redirect lanza una excepción, por lo que el return de abajo no se alcanza si hay éxito.
+    } else {
+      console.log('Autenticación fallida para:', username);
+      return {
+        message: 'Credenciales inválidas.',
+        errors: { general: ['Nombre de usuario o contraseña incorrectos.'] },
+        success: false,
+      };
+    }
+  } catch (error) {
+    console.error('Error durante el login:', error);
     return {
-      message: 'Credenciales inválidas.',
-      errors: { general: ['Nombre de usuario o contraseña incorrectos.'] },
+      message: 'Error del servidor durante el inicio de sesión.',
       success: false,
     };
   }
-  // Si la autenticación es exitosa y no hay errores, se redirige.
-  // Este redirect DEBE estar fuera de cualquier try/catch si el try/catch está esperando retornar un Server Action.
-  // Para Server Actions usados con useFormState, el redirect es una excepción que Next.js maneja.
-  redirect('/');
-
-  // Esta parte no se alcanzará si el redirect ocurre.
-  // Se mantiene para estructura si se decidiera no redirigir inmediatamente desde el server action.
-  // return { message: 'Autenticación exitosa', success: true };
 }

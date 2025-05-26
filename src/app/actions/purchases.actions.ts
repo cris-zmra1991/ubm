@@ -3,18 +3,32 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
+import { pool } from '@/lib/db';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// Esquema para la validación de órdenes de compra
+// TODO: SQL - CREATE TABLE para órdenes de compra
+// CREATE TABLE purchase_orders (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   poNumber VARCHAR(255) NOT NULL UNIQUE,
+//   vendor VARCHAR(255) NOT NULL,
+//   date DATE NOT NULL,
+//   totalAmount DECIMAL(10, 2) NOT NULL,
+//   status ENUM('Borrador', 'Confirmada', 'Enviada', 'Recibida', 'Cancelada') NOT NULL,
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+//   -- Podrías añadir una foreign key a una tabla de vendors si la tienes
+//   -- Podrías añadir una tabla `purchase_order_items` para detallar los productos
+// );
+
 export const PurchaseOrderSchema = z.object({
   id: z.string().optional(),
   poNumber: z.string().min(1, 'El número de OC es requerido.'),
   vendor: z.string().min(1, 'El proveedor es requerido.'),
-  date: z.string().min(1, 'La fecha es requerida.'), // Podría ser z.date() si se maneja conversión
+  date: z.string().min(1, 'La fecha es requerida.'), 
   totalAmount: z.coerce.number().positive('El monto total debe ser positivo.'),
   status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada"], {
     errorMap: () => ({ message: 'Selecciona un estado válido.' }),
   }),
-  // items: z.array(z.object(...)) // Podrías añadir items de la OC aquí
 });
 
 export type PurchaseOrderFormInput = z.infer<typeof PurchaseOrderSchema>;
@@ -30,15 +44,8 @@ export interface PurchaseOrderActionResponse {
     status?: string[];
     general?: string[];
   };
-  purchaseOrder?: PurchaseOrderFormInput;
+  purchaseOrder?: PurchaseOrderFormInput & { id: string };
 }
-
-// Simulación de base de datos en memoria
-let DUMMY_PURCHASE_ORDERS_DB: PurchaseOrderFormInput[] = [
-  { id: "1", poNumber: "PO-2024-001", vendor: "Proveedor Alpha", date: "2024-07-15", totalAmount: 1250.75, status: "Recibida" },
-  { id: "2", poNumber: "PO-2024-002", vendor: "Proveedor Beta", date: "2024-07-18", totalAmount: 875.00, status: "Enviada" },
-];
-let nextPOId = 3;
 
 export async function addPurchaseOrder(
   data: PurchaseOrderFormInput
@@ -53,20 +60,36 @@ export async function addPurchaseOrder(
     };
   }
 
-  try {
-    const newPurchaseOrder = { ...validatedFields.data, id: String(nextPOId++) };
-    // TODO: Lógica para insertar en la base de datos MySQL
-    DUMMY_PURCHASE_ORDERS_DB.push(newPurchaseOrder);
-    console.log('Orden de Compra añadida (simulado):', newPurchaseOrder);
+  if (!pool) {
+    console.error('Error: Connection pool not available in addPurchaseOrder.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
 
-    revalidatePath('/purchases');
-    return {
-      success: true,
-      message: 'Orden de Compra añadida exitosamente.',
-      purchaseOrder: newPurchaseOrder,
-    };
-  } catch (error) {
-    console.error('Error al añadir Orden de Compra (simulado):', error);
+  const { poNumber, vendor, date, totalAmount, status } = validatedFields.data;
+
+  try {
+    // TODO: SQL - Insertar orden de compra
+    const [result] = await pool.query<ResultSetHeader>(
+      'INSERT INTO purchase_orders (poNumber, vendor, date, totalAmount, status) VALUES (?, ?, ?, ?, ?)',
+      [poNumber, vendor, date, totalAmount, status]
+    );
+
+    if (result.affectedRows > 0) {
+      const newPOId = result.insertId.toString();
+      revalidatePath('/purchases');
+      return {
+        success: true,
+        message: 'Orden de Compra añadida exitosamente.',
+        purchaseOrder: { ...validatedFields.data, id: newPOId },
+      };
+    } else {
+       return { success: false, message: 'No se pudo añadir la Orden de Compra.' };
+    }
+  } catch (error: any) {
+    console.error('Error al añadir Orden de Compra (MySQL):', error);
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) { // Manejar error de poNumber duplicado
+        return { success: false, message: 'Error: El número de OC ya existe.', errors: { poNumber: ['Este número de OC ya está registrado.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al añadir Orden de Compra.',
@@ -91,23 +114,35 @@ export async function updatePurchaseOrder(
     };
   }
 
+  if (!pool) {
+    console.error('Error: Connection pool not available in updatePurchaseOrder.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+  
+  const { id, poNumber, vendor, date, totalAmount, status } = validatedFields.data;
+
   try {
-    // TODO: Lógica para actualizar en la base de datos MySQL
-    const index = DUMMY_PURCHASE_ORDERS_DB.findIndex(po => po.id === validatedFields.data.id);
-    if (index === -1) {
-      return { success: false, message: 'Orden de Compra no encontrada.' };
-    }
-    DUMMY_PURCHASE_ORDERS_DB[index] = { ...DUMMY_PURCHASE_ORDERS_DB[index], ...validatedFields.data };
-    console.log('Orden de Compra actualizada (simulado):', DUMMY_PURCHASE_ORDERS_DB[index]);
+    // TODO: SQL - Actualizar orden de compra
+    const [result] = await pool.query<ResultSetHeader>(
+      'UPDATE purchase_orders SET poNumber = ?, vendor = ?, date = ?, totalAmount = ?, status = ? WHERE id = ?',
+      [poNumber, vendor, date, totalAmount, status, id]
+    );
     
-    revalidatePath('/purchases');
-    return {
-      success: true,
-      message: 'Orden de Compra actualizada exitosamente.',
-      purchaseOrder: DUMMY_PURCHASE_ORDERS_DB[index],
-    };
-  } catch (error) {
-    console.error('Error al actualizar Orden de Compra (simulado):', error);
+    if (result.affectedRows > 0) {
+      revalidatePath('/purchases');
+      return {
+        success: true,
+        message: 'Orden de Compra actualizada exitosamente.',
+        purchaseOrder: { ...validatedFields.data, id: id! },
+      };
+    } else {
+      return { success: false, message: 'Orden de Compra no encontrada o sin cambios.' };
+    }
+  } catch (error: any) {
+    console.error('Error al actualizar Orden de Compra (MySQL):', error);
+     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        return { success: false, message: 'Error: El número de OC ya existe para otra orden.', errors: { poNumber: ['Este número de OC ya está registrado para otra orden.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al actualizar Orden de Compra.',
@@ -123,23 +158,29 @@ export async function deletePurchaseOrder(
     return { success: false, message: 'ID de Orden de Compra requerido para eliminar.' };
   }
 
+  if (!pool) {
+    console.error('Error: Connection pool not available in deletePurchaseOrder.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+
   try {
-    // TODO: Lógica para eliminar de la base de datos MySQL
-    const initialLength = DUMMY_PURCHASE_ORDERS_DB.length;
-    DUMMY_PURCHASE_ORDERS_DB = DUMMY_PURCHASE_ORDERS_DB.filter(po => po.id !== poId);
-    
-    if (DUMMY_PURCHASE_ORDERS_DB.length === initialLength) {
+    // TODO: SQL - Eliminar orden de compra
+    const [result] = await pool.query<ResultSetHeader>(
+      'DELETE FROM purchase_orders WHERE id = ?',
+      [poId]
+    );
+        
+    if (result.affectedRows > 0) {
+        revalidatePath('/purchases');
+        return {
+          success: true,
+          message: 'Orden de Compra eliminada exitosamente.',
+        };
+    } else {
         return { success: false, message: 'Orden de Compra no encontrada para eliminar.' };
     }
-    console.log('Orden de Compra eliminada (simulado), ID:', poId);
-
-    revalidatePath('/purchases');
-    return {
-      success: true,
-      message: 'Orden de Compra eliminada exitosamente.',
-    };
   } catch (error) {
-    console.error('Error al eliminar Orden de Compra (simulado):', error);
+    console.error('Error al eliminar Orden de Compra (MySQL):', error);
     return {
       success: false,
       message: 'Error del servidor al eliminar Orden de Compra.',
@@ -148,9 +189,23 @@ export async function deletePurchaseOrder(
   }
 }
 
-// Función para obtener datos (simulada)
-export async function getPurchaseOrders() {
-  // TODO: Lógica para obtener Órdenes de Compra de la base de datos MySQL
-  console.log('Obteniendo Órdenes de Compra (simulado)');
-  return DUMMY_PURCHASE_ORDERS_DB;
+export async function getPurchaseOrders(): Promise<PurchaseOrderFormInput[]> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getPurchaseOrders.');
+    return [];
+  }
+  try {
+    // TODO: SQL - Obtener órdenes de compra
+    const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, poNumber, vendor, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM purchase_orders ORDER BY date DESC'
+    );
+    return rows.map(row => ({
+        ...row,
+        id: row.id.toString(),
+        totalAmount: parseFloat(row.totalAmount) // Asegurar que sea número
+    })) as PurchaseOrderFormInput[];
+  } catch (error) {
+    console.error('Error al obtener Órdenes de Compra (MySQL):', error);
+    return [];
+  }
 }

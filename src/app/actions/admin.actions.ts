@@ -3,8 +3,62 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
+import { pool } from '@/lib/db';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// Esquema para Información de la Empresa
+// TODO: SQL - CREATE TABLE para Información de la Empresa (company_info)
+// Esta tabla usualmente tendrá una sola fila.
+// CREATE TABLE company_info (
+//   id INT PRIMARY KEY DEFAULT 1, -- Solo una fila
+//   companyName VARCHAR(255) NOT NULL,
+//   companyEmail VARCHAR(255) NOT NULL,
+//   companyAddress TEXT NOT NULL,
+//   currency ENUM('EUR', 'USD', 'GBP') NOT NULL,
+//   timezone VARCHAR(100) NOT NULL,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   CONSTRAINT single_row CHECK (id = 1) -- Asegura una sola fila si tu MySQL lo soporta
+// );
+// -- Inserta una fila inicial si la tabla está vacía:
+// INSERT INTO company_info (id, companyName, companyEmail, companyAddress, currency, timezone)
+// VALUES (1, 'Nombre de Empresa Inicial', 'email@inicial.com', 'Dirección Inicial', 'EUR', 'Europe/Paris')
+// ON DUPLICATE KEY UPDATE companyName=companyName; -- Para evitar error si ya existe
+
+// TODO: SQL - CREATE TABLE para Usuarios (users) - Ya definido en auth.actions.ts, asegurarse que coincida.
+// CREATE TABLE users (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   username VARCHAR(255) NOT NULL UNIQUE,
+//   email VARCHAR(255) NOT NULL UNIQUE,
+//   password_hash VARCHAR(255) NOT NULL, -- Almacenar hash, no la contraseña
+//   role ENUM('Administrador', 'Gerente', 'Usuario') NOT NULL DEFAULT 'Usuario',
+//   status ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
+//   lastLogin TIMESTAMP NULL,
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+// );
+
+// TODO: SQL - CREATE TABLE para Configuración de Seguridad (security_settings)
+// CREATE TABLE security_settings (
+//   id INT PRIMARY KEY DEFAULT 1,
+//   mfaEnabled BOOLEAN DEFAULT FALSE,
+//   passwordPolicy ENUM('simple', 'medium', 'strong') DEFAULT 'medium',
+//   sessionTimeout INT DEFAULT 30, -- en minutos
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   CONSTRAINT single_row_sec CHECK (id = 1)
+// );
+// INSERT INTO security_settings (id) VALUES (1) ON DUPLICATE KEY UPDATE id=id;
+
+// TODO: SQL - CREATE TABLE para Configuración de Notificaciones (notification_settings)
+// CREATE TABLE notification_settings (
+//   id INT PRIMARY KEY DEFAULT 1,
+//   emailNotificationsEnabled BOOLEAN DEFAULT TRUE,
+//   newSaleNotify BOOLEAN DEFAULT TRUE,
+//   lowStockNotify BOOLEAN DEFAULT TRUE,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   CONSTRAINT single_row_notif CHECK (id = 1)
+// );
+// INSERT INTO notification_settings (id) VALUES (1) ON DUPLICATE KEY UPDATE id=id;
+
+
 export const CompanyInfoSchema = z.object({
   companyName: z.string().min(1, 'El nombre de la empresa es requerido.'),
   companyEmail: z.string().email('Correo electrónico inválido.'),
@@ -14,20 +68,16 @@ export const CompanyInfoSchema = z.object({
 });
 export type CompanyInfoFormInput = z.infer<typeof CompanyInfoSchema>;
 
-// Esquema para Usuarios
 export const UserSchema = z.object({
   id: z.string().optional(),
   username: z.string().min(3, 'El nombre de usuario debe tener al menos 3 caracteres.'),
   email: z.string().email('Correo electrónico inválido.'),
   role: z.enum(["Administrador", "Gerente", "Usuario"]),
   status: z.enum(["Activo", "Inactivo"]).default("Activo"),
-  // La contraseña se manejaría de forma más segura en una implementación real (hash, etc.)
-  // Para simulación, no la incluimos directamente en el update/add salvo para creación si es necesario
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres.').optional(), // Opcional para edición
+  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres.').optional(),
 });
 export type UserFormInput = z.infer<typeof UserSchema>;
 
-// Esquema para Configuración de Seguridad
 export const SecuritySettingsSchema = z.object({
   mfaEnabled: z.boolean().default(false),
   passwordPolicy: z.enum(['simple', 'medium', 'strong']),
@@ -35,7 +85,6 @@ export const SecuritySettingsSchema = z.object({
 });
 export type SecuritySettingsFormInput = z.infer<typeof SecuritySettingsSchema>;
 
-// Esquema para Configuración de Notificaciones
 export const NotificationSettingsSchema = z.object({
   emailNotificationsEnabled: z.boolean().default(true),
   newSaleNotify: z.boolean().default(true),
@@ -48,36 +97,8 @@ export interface AdminActionResponse<T> {
   success: boolean;
   message: string;
   errors?: any; 
-  data?: T;
+  data?: T; // Si es una operación de get, podría ser T. Si es add/update puede ser T & {id: string}
 }
-
-// --- Simulación de "Base de Datos" para configuraciones y usuarios ---
-let DUMMY_COMPANY_INFO: CompanyInfoFormInput = {
-  companyName: "Unified Business Solutions",
-  companyEmail: "contact@ubm.com",
-  companyAddress: "123 Main Street, Business City, BC 12345",
-  currency: "EUR",
-  timezone: "Europe/Paris",
-};
-
-let DUMMY_USERS_DB: (UserFormInput & { lastLogin?: string })[] = [ // lastLogin solo para display
-  { id: "1", username: "johndoe", email: "john.doe@example.com", role: "Administrador", status: "Activo", lastLogin: "2024-07-22 10:00 AM" },
-  { id: "2", username: "janesmith", email: "jane.smith@example.com", role: "Gerente", status: "Activo", lastLogin: "2024-07-21 03:00 PM" },
-];
-let nextUserId = 3;
-
-let DUMMY_SECURITY_SETTINGS: SecuritySettingsFormInput = {
-  mfaEnabled: false,
-  passwordPolicy: "medium",
-  sessionTimeout: 30,
-};
-
-let DUMMY_NOTIFICATION_SETTINGS: NotificationSettingsFormInput = {
-  emailNotificationsEnabled: true,
-  newSaleNotify: true,
-  lowStockNotify: true,
-};
-
 
 // --- Acciones para Configuración General ---
 export async function updateCompanyInfo(
@@ -87,90 +108,162 @@ export async function updateCompanyInfo(
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
+
+  const { companyName, companyEmail, companyAddress, currency, timezone } = validatedFields.data;
   try {
-    // TODO: Lógica para guardar en tabla de configuración de MySQL (o similar)
-    DUMMY_COMPANY_INFO = validatedFields.data;
-    console.log('Información de empresa actualizada (simulado):', DUMMY_COMPANY_INFO);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Información de la empresa actualizada.', data: DUMMY_COMPANY_INFO };
+    // TODO: SQL - Actualizar (o insertar si no existe) la información de la empresa en MySQL (tabla con una sola fila, id=1)
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO company_info (id, companyName, companyEmail, companyAddress, currency, timezone) 
+       VALUES (1, ?, ?, ?, ?, ?) 
+       ON DUPLICATE KEY UPDATE 
+       companyName = VALUES(companyName), companyEmail = VALUES(companyEmail), companyAddress = VALUES(companyAddress), 
+       currency = VALUES(currency), timezone = VALUES(timezone)`,
+      [companyName, companyEmail, companyAddress, currency, timezone]
+    );
+
+    if (result.affectedRows > 0 || result.insertId > 0) {
+        revalidatePath('/admin', 'layout');
+        return { success: true, message: 'Información de la empresa actualizada.', data: validatedFields.data };
+    }
+    return { success: false, message: 'No se pudo actualizar la información de la empresa.' };
   } catch (error) {
+    console.error('Error al actualizar información de empresa (MySQL):', error);
     return { success: false, message: 'Error al actualizar información.', errors: { general: ['Error del servidor.'] } };
   }
 }
-export async function getCompanyInfo(): Promise<CompanyInfoFormInput> {
-  // TODO: Lógica para obtener de MySQL
-  return DUMMY_COMPANY_INFO;
+
+export async function getCompanyInfo(): Promise<CompanyInfoFormInput | null> {
+  if (!pool) { console.error('DB pool not available in getCompanyInfo'); return null; }
+  try {
+    // TODO: SQL - Obtener información de la empresa de MySQL (fila con id=1)
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT companyName, companyEmail, companyAddress, currency, timezone FROM company_info WHERE id = 1');
+    if (rows.length > 0) {
+      return rows[0] as CompanyInfoFormInput;
+    }
+    // Devuelve valores por defecto si no hay nada en la BD para evitar errores en el form
+    return { 
+        companyName: "Mi Empresa", companyEmail: "email@example.com", companyAddress: "123 Calle Falsa", 
+        currency: "EUR", timezone: "Europe/Madrid" 
+    };
+  } catch (error) {
+    console.error('Error al obtener información de empresa (MySQL):', error);
+    return null; // O un objeto con valores por defecto
+  }
 }
 
 // --- Acciones para Gestión de Usuarios ---
 export async function addUser(
   data: UserFormInput
-): Promise<AdminActionResponse<UserFormInput>> {
+): Promise<AdminActionResponse<UserFormInput & {id: string}>> {
   const validatedFields = UserSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
+  
+  const { username, email, role, status, password } = validatedFields.data;
+  if (!password) { // Password es requerido para addUser
+    return { success: false, message: 'La contraseña es requerida para nuevos usuarios.', errors: { password: ['La contraseña es requerida.'] } };
+  }
+  
   try {
-    // TODO: Lógica para crear usuario en MySQL (hashear contraseña, etc.)
-    const newUser = { ...validatedFields.data, id: String(nextUserId++) };
-    // Eliminar contraseña del objeto que se guarda en DUMMY_USERS_DB si no se quiere simular su guardado
-    // const { password, ...userToStore } = newUser; DUMMY_USERS_DB.push(userToStore);
-    DUMMY_USERS_DB.push(newUser); 
-    console.log('Usuario añadido (simulado):', newUser);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Usuario añadido exitosamente.', data: newUser };
-  } catch (error) {
+    // TODO: SQL - Hashear contraseña antes de guardarla (ej. con bcrypt)
+    const password_hash = password; // REEMPLAZAR con el hash real
+    const [result] = await pool.query<ResultSetHeader>(
+      'INSERT INTO users (username, email, role, status, password_hash) VALUES (?, ?, ?, ?, ?)',
+      [username, email, role, status, password_hash]
+    );
+    if (result.affectedRows > 0) {
+        const newUserId = result.insertId.toString();
+        revalidatePath('/admin', 'layout');
+        const { password, ...userData } = validatedFields.data; // No devolver contraseña
+        return { success: true, message: 'Usuario añadido exitosamente.', data: { ...userData, id: newUserId } };
+    }
+    return { success: false, message: 'No se pudo añadir el usuario.' };
+  } catch (error: any) {
+    console.error('Error al añadir usuario (MySQL):', error);
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        const field = error.message.includes('username') ? 'username' : 'email';
+        return { success: false, message: `Error: El ${field} ya existe.`, errors: { [field]: [`Este ${field} ya está registrado.`] } };
+    }
     return { success: false, message: 'Error al añadir usuario.', errors: { general: ['Error del servidor.'] } };
   }
 }
 
 export async function updateUser(
   data: UserFormInput
-): Promise<AdminActionResponse<UserFormInput>> {
+): Promise<AdminActionResponse<UserFormInput & {id: string}>> {
   if (!data.id) return { success: false, message: 'ID de usuario requerido.'};
-  // Para actualizar, la contraseña es opcional. Si se provee, se actualiza.
   const updateSchema = data.password ? UserSchema : UserSchema.omit({ password: true });
   const validatedFields = updateSchema.safeParse(data);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
-  try {
-    // TODO: Lógica para actualizar usuario en MySQL (si se cambia contraseña, hashear)
-    const index = DUMMY_USERS_DB.findIndex(u => u.id === validatedFields.data.id);
-    if (index === -1) return { success: false, message: 'Usuario no encontrado.' };
-    
-    const updatedData = { ...DUMMY_USERS_DB[index], ...validatedFields.data };
-    // Si la contraseña no se proporcionó en la actualización, mantener la anterior (no relevante para simulación sin hash)
-    if (!validatedFields.data.password) {
-      // delete updatedData.password; // O mantener el valor existente si lo tuvieras
-    }
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
 
-    DUMMY_USERS_DB[index] = updatedData;
-    console.log('Usuario actualizado (simulado):', DUMMY_USERS_DB[index]);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Usuario actualizado.', data: DUMMY_USERS_DB[index] };
-  } catch (error) {
+  const { id, username, email, role, status, password } = validatedFields.data;
+  try {
+    let query: string;
+    let queryParams: any[];
+
+    if (password) {
+      // TODO: SQL - Hashear nueva contraseña
+      const new_password_hash = password; // REEMPLAZAR con el hash real
+      query = 'UPDATE users SET username = ?, email = ?, role = ?, status = ?, password_hash = ? WHERE id = ?';
+      queryParams = [username, email, role, status, new_password_hash, id];
+    } else {
+      query = 'UPDATE users SET username = ?, email = ?, role = ?, status = ? WHERE id = ?';
+      queryParams = [username, email, role, status, id];
+    }
+    
+    const [result] = await pool.query<ResultSetHeader>(query, queryParams);
+    if (result.affectedRows > 0) {
+        revalidatePath('/admin', 'layout');
+        const { password, ...userData } = validatedFields.data;
+        return { success: true, message: 'Usuario actualizado.', data: { ...userData, id: id! } };
+    }
+    return { success: false, message: 'Usuario no encontrado o sin cambios.' };
+  } catch (error: any) {
+    console.error('Error al actualizar usuario (MySQL):', error);
+     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        const field = error.message.includes('username') ? 'username' : 'email';
+        return { success: false, message: `Error: El ${field} ya existe para otro usuario.`, errors: { [field]: [`Este ${field} ya está registrado para otro usuario.`] } };
+    }
     return { success: false, message: 'Error al actualizar usuario.', errors: { general: ['Error del servidor.'] } };
   }
 }
 
 export async function deleteUser(userId: string): Promise<AdminActionResponse<null>> {
- try {
-    // TODO: Lógica para eliminar usuario en MySQL (o marcar como inactivo)
-    DUMMY_USERS_DB = DUMMY_USERS_DB.filter(u => u.id !== userId);
-    console.log('Usuario eliminado (simulado), ID:', userId);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Usuario eliminado.' };
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
+  try {
+    // TODO: SQL - Eliminar usuario
+    const [result] = await pool.query<ResultSetHeader>('DELETE FROM users WHERE id = ?', [userId]);
+    if (result.affectedRows > 0) {
+        revalidatePath('/admin', 'layout');
+        return { success: true, message: 'Usuario eliminado.' };
+    }
+    return { success: false, message: 'Usuario no encontrado.' };
   } catch (error) {
+    console.error('Error al eliminar usuario (MySQL):', error);
     return { success: false, message: 'Error al eliminar usuario.', errors: { general: ['Error del servidor.'] } };
   }
 }
 
-export async function getUsers(): Promise<UserFormInput[]> {
-  // TODO: Lógica para obtener usuarios de MySQL
-  // No devolver contraseñas!
-  return DUMMY_USERS_DB.map(u => { const {password, ...user} = u; return user; });
+export async function getUsers(): Promise<(UserFormInput & { lastLogin?: string })[]> {
+  if (!pool) { console.error('DB pool no disponible en getUsers'); return []; }
+  try {
+    // TODO: SQL - Obtener usuarios, excluyendo password_hash
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, username, email, role, status, DATE_FORMAT(lastLogin, "%Y-%m-%d %H:%i:%s") as lastLogin FROM users ORDER BY username ASC');
+    return rows.map(row => ({
+        ...row,
+        id: row.id.toString(),
+    })) as (UserFormInput & { lastLogin?: string })[];
+  } catch (error) {
+    console.error('Error al obtener usuarios (MySQL):', error);
+    return [];
+  }
 }
 
 
@@ -182,19 +275,40 @@ export async function updateSecuritySettings(
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
+  
+  const { mfaEnabled, passwordPolicy, sessionTimeout } = validatedFields.data;
   try {
-    // TODO: Lógica para guardar en MySQL
-    DUMMY_SECURITY_SETTINGS = validatedFields.data;
-    console.log('Config. seguridad actualizada (simulado):', DUMMY_SECURITY_SETTINGS);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Configuración de seguridad actualizada.', data: DUMMY_SECURITY_SETTINGS };
+    // TODO: SQL - Actualizar (o insertar si no existe) config. seguridad
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO security_settings (id, mfaEnabled, passwordPolicy, sessionTimeout) VALUES (1, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE mfaEnabled = VALUES(mfaEnabled), passwordPolicy = VALUES(passwordPolicy), sessionTimeout = VALUES(sessionTimeout)`,
+      [mfaEnabled, passwordPolicy, sessionTimeout]
+    );
+    if (result.affectedRows > 0 || result.insertId > 0) {
+        revalidatePath('/admin', 'layout');
+        return { success: true, message: 'Configuración de seguridad actualizada.', data: validatedFields.data };
+    }
+    return { success: false, message: 'No se pudo actualizar la configuración de seguridad.' };
   } catch (error) {
+    console.error('Error al actualizar config. seguridad (MySQL):', error);
     return { success: false, message: 'Error al actualizar config. seguridad.', errors: { general: ['Error del servidor.'] } };
   }
 }
-export async function getSecuritySettings(): Promise<SecuritySettingsFormInput> {
-  // TODO: Lógica para obtener de MySQL
-  return DUMMY_SECURITY_SETTINGS;
+
+export async function getSecuritySettings(): Promise<SecuritySettingsFormInput | null> {
+  if (!pool) { console.error('DB pool no disponible en getSecuritySettings'); return null; }
+  try {
+    // TODO: SQL - Obtener config. seguridad
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT mfaEnabled, passwordPolicy, sessionTimeout FROM security_settings WHERE id = 1');
+    if (rows.length > 0) {
+      return { ...rows[0], mfaEnabled: Boolean(rows[0].mfaEnabled) } as SecuritySettingsFormInput;
+    }
+    return { mfaEnabled: false, passwordPolicy: "medium", sessionTimeout: 30 }; // Valores por defecto
+  } catch (error) {
+    console.error('Error al obtener config. seguridad (MySQL):', error);
+    return null;
+  }
 }
 
 // --- Acciones para Configuración de Notificaciones ---
@@ -205,17 +319,43 @@ export async function updateNotificationSettings(
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
+  if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
+
+  const { emailNotificationsEnabled, newSaleNotify, lowStockNotify } = validatedFields.data;
   try {
-    // TODO: Lógica para guardar en MySQL
-    DUMMY_NOTIFICATION_SETTINGS = validatedFields.data;
-    console.log('Config. notificaciones actualizada (simulado):', DUMMY_NOTIFICATION_SETTINGS);
-    revalidatePath('/admin', 'layout');
-    return { success: true, message: 'Configuración de notificaciones actualizada.', data: DUMMY_NOTIFICATION_SETTINGS };
+    // TODO: SQL - Actualizar (o insertar si no existe) config. notificaciones
+    const [result] = await pool.query<ResultSetHeader>(
+      `INSERT INTO notification_settings (id, emailNotificationsEnabled, newSaleNotify, lowStockNotify) VALUES (1, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE emailNotificationsEnabled = VALUES(emailNotificationsEnabled), newSaleNotify = VALUES(newSaleNotify), lowStockNotify = VALUES(lowStockNotify)`,
+      [emailNotificationsEnabled, newSaleNotify, lowStockNotify]
+    );
+     if (result.affectedRows > 0 || result.insertId > 0) {
+        revalidatePath('/admin', 'layout');
+        return { success: true, message: 'Configuración de notificaciones actualizada.', data: validatedFields.data };
+    }
+    return { success: false, message: 'No se pudo actualizar la configuración de notificaciones.' };
   } catch (error) {
+    console.error('Error al actualizar config. notificaciones (MySQL):', error);
     return { success: false, message: 'Error al actualizar config. notificaciones.', errors: { general: ['Error del servidor.'] } };
   }
 }
-export async function getNotificationSettings(): Promise<NotificationSettingsFormInput> {
-  // TODO: Lógica para obtener de MySQL
-  return DUMMY_NOTIFICATION_SETTINGS;
+
+export async function getNotificationSettings(): Promise<NotificationSettingsFormInput | null> {
+  if (!pool) { console.error('DB pool no disponible en getNotificationSettings'); return null; }
+  try {
+    // TODO: SQL - Obtener config. notificaciones
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT emailNotificationsEnabled, newSaleNotify, lowStockNotify FROM notification_settings WHERE id = 1');
+    if (rows.length > 0) {
+      return { 
+          ...rows[0], 
+          emailNotificationsEnabled: Boolean(rows[0].emailNotificationsEnabled),
+          newSaleNotify: Boolean(rows[0].newSaleNotify),
+          lowStockNotify: Boolean(rows[0].lowStockNotify),
+      } as NotificationSettingsFormInput;
+    }
+    return { emailNotificationsEnabled: true, newSaleNotify: true, lowStockNotify: true }; // Valores por defecto
+  } catch (error) {
+    console.error('Error al obtener config. notificaciones (MySQL):', error);
+    return null;
+  }
 }

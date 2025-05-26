@@ -3,8 +3,23 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
+import { pool } from '@/lib/db';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// Esquema para la validación de gastos
+// TODO: SQL - CREATE TABLE para gastos
+// CREATE TABLE expenses (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   date DATE NOT NULL,
+//   category VARCHAR(255) NOT NULL,
+//   description TEXT NOT NULL,
+//   amount DECIMAL(10, 2) NOT NULL,
+//   vendor VARCHAR(255),
+//   status ENUM('Enviado', 'Aprobado', 'Rechazado', 'Pagado') NOT NULL,
+//   receiptUrl VARCHAR(2048), -- URL al recibo
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+// );
+
 export const ExpenseSchema = z.object({
   id: z.string().optional(),
   date: z.string().min(1, 'La fecha es requerida.'),
@@ -15,7 +30,7 @@ export const ExpenseSchema = z.object({
   status: z.enum(["Enviado", "Aprobado", "Rechazado", "Pagado"], {
     errorMap: () => ({ message: 'Selecciona un estado válido.' }),
   }),
-  receiptUrl: z.string().url().optional().or(z.literal('')), // opcional y puede ser string vacío
+  receiptUrl: z.string().url({ message: "URL de recibo inválida." }).optional().or(z.literal('')),
 });
 
 export type ExpenseFormInput = z.infer<typeof ExpenseSchema>;
@@ -33,15 +48,8 @@ export interface ExpenseActionResponse {
     receiptUrl?: string[];
     general?: string[];
   };
-  expense?: ExpenseFormInput;
+  expense?: ExpenseFormInput & { id: string };
 }
-
-// Simulación de base de datos en memoria
-let DUMMY_EXPENSES_DB: ExpenseFormInput[] = [
-  { id: "1", date: "2024-07-01", category: "Suministros de Oficina", description: "Papel para impresora y bolígrafos", amount: 45.50, vendor: "Office Depot", status: "Pagado", receiptUrl: "#" },
-  { id: "2", date: "2024-07-05", category: "Viajes", description: "Vuelo a conferencia", amount: 350.00, status: "Aprobado", vendor: "Aerolínea X" },
-];
-let nextExpenseId = 3;
 
 export async function addExpense(
   data: ExpenseFormInput
@@ -56,20 +64,33 @@ export async function addExpense(
     };
   }
 
-  try {
-    const newExpense = { ...validatedFields.data, id: String(nextExpenseId++) };
-    // TODO: Lógica para insertar en la base de datos MySQL
-    DUMMY_EXPENSES_DB.push(newExpense);
-    console.log('Gasto añadido (simulado):', newExpense);
+  if (!pool) {
+    console.error('Error: Connection pool not available in addExpense.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
 
-    revalidatePath('/expenses');
-    return {
-      success: true,
-      message: 'Gasto añadido exitosamente.',
-      expense: newExpense,
-    };
+  const { date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
+
+  try {
+    // TODO: SQL - Insertar gasto
+    const [result] = await pool.query<ResultSetHeader>(
+      'INSERT INTO expenses (date, category, description, amount, vendor, status, receiptUrl) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [date, category, description, amount, vendor || null, status, receiptUrl || null]
+    );
+
+    if (result.affectedRows > 0) {
+      const newExpenseId = result.insertId.toString();
+      revalidatePath('/expenses');
+      return {
+        success: true,
+        message: 'Gasto añadido exitosamente.',
+        expense: { ...validatedFields.data, id: newExpenseId },
+      };
+    } else {
+      return { success: false, message: 'No se pudo añadir el gasto.'};
+    }
   } catch (error) {
-    console.error('Error al añadir gasto (simulado):', error);
+    console.error('Error al añadir gasto (MySQL):', error);
     return {
       success: false,
       message: 'Error del servidor al añadir gasto.',
@@ -94,23 +115,32 @@ export async function updateExpense(
     };
   }
 
+  if (!pool) {
+    console.error('Error: Connection pool not available in updateExpense.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+  
+  const { id, date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
+
   try {
-    // TODO: Lógica para actualizar en la base de datos MySQL
-    const index = DUMMY_EXPENSES_DB.findIndex(ex => ex.id === validatedFields.data.id);
-    if (index === -1) {
-      return { success: false, message: 'Gasto no encontrado.' };
-    }
-    DUMMY_EXPENSES_DB[index] = { ...DUMMY_EXPENSES_DB[index], ...validatedFields.data };
-    console.log('Gasto actualizado (simulado):', DUMMY_EXPENSES_DB[index]);
+    // TODO: SQL - Actualizar gasto
+    const [result] = await pool.query<ResultSetHeader>(
+      'UPDATE expenses SET date = ?, category = ?, description = ?, amount = ?, vendor = ?, status = ?, receiptUrl = ? WHERE id = ?',
+      [date, category, description, amount, vendor || null, status, receiptUrl || null, id]
+    );
     
-    revalidatePath('/expenses');
-    return {
-      success: true,
-      message: 'Gasto actualizado exitosamente.',
-      expense: DUMMY_EXPENSES_DB[index],
-    };
+    if (result.affectedRows > 0) {
+      revalidatePath('/expenses');
+      return {
+        success: true,
+        message: 'Gasto actualizado exitosamente.',
+        expense: { ...validatedFields.data, id: id! },
+      };
+    } else {
+      return { success: false, message: 'Gasto no encontrado o sin cambios.' };
+    }
   } catch (error) {
-    console.error('Error al actualizar gasto (simulado):', error);
+    console.error('Error al actualizar gasto (MySQL):', error);
     return {
       success: false,
       message: 'Error del servidor al actualizar gasto.',
@@ -126,23 +156,29 @@ export async function deleteExpense(
     return { success: false, message: 'ID de gasto requerido para eliminar.' };
   }
 
+  if (!pool) {
+    console.error('Error: Connection pool not available in deleteExpense.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+
   try {
-    // TODO: Lógica para eliminar de la base de datos MySQL
-    const initialLength = DUMMY_EXPENSES_DB.length;
-    DUMMY_EXPENSES_DB = DUMMY_EXPENSES_DB.filter(ex => ex.id !== expenseId);
+    // TODO: SQL - Eliminar gasto
+    const [result] = await pool.query<ResultSetHeader>(
+      'DELETE FROM expenses WHERE id = ?',
+      [expenseId]
+    );
     
-    if (DUMMY_EXPENSES_DB.length === initialLength) {
+    if (result.affectedRows > 0) {
+        revalidatePath('/expenses');
+        return {
+          success: true,
+          message: 'Gasto eliminado exitosamente.',
+        };
+    } else {
         return { success: false, message: 'Gasto no encontrado para eliminar.' };
     }
-    console.log('Gasto eliminado (simulado), ID:', expenseId);
-
-    revalidatePath('/expenses');
-    return {
-      success: true,
-      message: 'Gasto eliminado exitosamente.',
-    };
   } catch (error) {
-    console.error('Error al eliminar gasto (simulado):', error);
+    console.error('Error al eliminar gasto (MySQL):', error);
     return {
       success: false,
       message: 'Error del servidor al eliminar gasto.',
@@ -151,10 +187,23 @@ export async function deleteExpense(
   }
 }
 
-// Función para obtener datos (simulada)
-export async function getExpenses() {
-  // TODO: Lógica para obtener Gastos de la base de datos MySQL
-  console.log('Obteniendo Gastos (simulado)');
-  return DUMMY_EXPENSES_DB;
+export async function getExpenses(): Promise<ExpenseFormInput[]> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getExpenses.');
+    return [];
+  }
+  try {
+    // TODO: SQL - Obtener gastos
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, category, description, amount, vendor, status, receiptUrl FROM expenses ORDER BY date DESC'
+    );
+    return rows.map(row => ({
+        ...row,
+        id: row.id.toString(),
+        amount: parseFloat(row.amount)
+    })) as ExpenseFormInput[];
+  } catch (error) {
+    console.error('Error al obtener Gastos (MySQL):', error);
+    return [];
+  }
 }
-

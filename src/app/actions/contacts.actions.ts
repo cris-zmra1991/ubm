@@ -3,10 +3,26 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
+import { pool } from '@/lib/db';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// Esquema para la validación de datos de contacto
+// TODO: SQL - CREATE TABLE para contactos
+// CREATE TABLE contacts (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   name VARCHAR(255) NOT NULL,
+//   email VARCHAR(255) NOT NULL UNIQUE,
+//   phone VARCHAR(50) NOT NULL,
+//   type ENUM('Cliente', 'Proveedor', 'Prospecto') NOT NULL,
+//   company VARCHAR(255),
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+//   -- avatarUrl y lastInteraction se pueden añadir si es necesario,
+//   -- avatarUrl podría ser un TEXT o VARCHAR(2048)
+//   -- lastInteraction podría ser un TIMESTAMP nullable
+// );
+
 export const ContactSchema = z.object({
-  id: z.string().optional(), // Opcional para la creación, requerido para la actualización
+  id: z.string().optional(), // MySQL auto-incrementará, pero lo necesitamos para update/delete
   name: z.string().min(1, 'El nombre es requerido.'),
   email: z.string().email('Correo electrónico inválido.'),
   phone: z.string().min(1, 'El teléfono es requerido.'),
@@ -14,8 +30,6 @@ export const ContactSchema = z.object({
     errorMap: () => ({ message: 'Selecciona un tipo de contacto válido.' }),
   }),
   company: z.string().optional(),
-  // avatarUrl se manejará por separado o se omitirá en la simulación simple
-  // lastInteraction se actualizará automáticamente o se omitirá
 });
 
 export type ContactFormInput = z.infer<typeof ContactSchema>;
@@ -31,16 +45,8 @@ export interface ContactActionResponse {
     company?: string[];
     general?: string[];
   };
-  contact?: ContactFormInput; // Para devolver el contacto creado/actualizado si es necesario
+  contact?: ContactFormInput & { id: string }; // Para devolver el contacto creado/actualizado
 }
-
-// Simulación de base de datos en memoria (solo para demostración)
-// En una aplicación real, esto interactuaría con MySQL.
-let DUMMY_CONTACTS_DB: ContactFormInput[] = [
-  { id: "1", name: "Alice Wonderland", email: "alice@example.com", phone: "555-1234", type: "Cliente", company: "Wonderland Inc." },
-  { id: "2", name: "Bob The Builder", email: "bob@example.com", phone: "555-5678", type: "Proveedor", company: "BuildIt Co." },
-];
-let nextId = 3;
 
 
 export async function addContact(
@@ -55,21 +61,38 @@ export async function addContact(
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
+  
+  if (!pool) {
+    console.error('Error: Connection pool not available in addContact.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+
+  const { name, email, phone, type, company } = validatedFields.data;
 
   try {
-    const newContact = { ...validatedFields.data, id: String(nextId++) };
-    // TODO: Lógica para insertar en la base de datos MySQL
-    DUMMY_CONTACTS_DB.push(newContact);
-    console.log('Contacto añadido (simulado):', newContact);
+    // TODO: SQL - Insertar contacto en la base de datos MySQL
+    const [result] = await pool.query<ResultSetHeader>(
+      'INSERT INTO contacts (name, email, phone, type, company) VALUES (?, ?, ?, ?, ?)',
+      [name, email, phone, type, company || null]
+    );
 
-    revalidatePath('/contacts'); // Revalida la caché de la página de contactos
-    return {
-      success: true,
-      message: 'Contacto añadido exitosamente.',
-      contact: newContact,
-    };
-  } catch (error) {
-    console.error('Error al añadir contacto (simulado):', error);
+    if (result.affectedRows > 0) {
+      const newContactId = result.insertId.toString();
+      revalidatePath('/contacts');
+      return {
+        success: true,
+        message: 'Contacto añadido exitosamente.',
+        contact: { ...validatedFields.data, id: newContactId },
+      };
+    } else {
+      return { success: false, message: 'No se pudo añadir el contacto.' };
+    }
+  } catch (error: any) {
+    console.error('Error al añadir contacto (MySQL):', error);
+    // Manejar error de email duplicado (MySQL error code 1062)
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        return { success: false, message: 'Error: El correo electrónico ya existe.', errors: { email: ['Este correo electrónico ya está registrado.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al añadir contacto.',
@@ -93,24 +116,36 @@ export async function updateContact(
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
+  
+  if (!pool) {
+    console.error('Error: Connection pool not available in updateContact.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
+
+  const { id, name, email, phone, type, company } = validatedFields.data;
 
   try {
-    // TODO: Lógica para actualizar en la base de datos MySQL
-    const index = DUMMY_CONTACTS_DB.findIndex(c => c.id === validatedFields.data.id);
-    if (index === -1) {
-      return { success: false, message: 'Contacto no encontrado.' };
+    // TODO: SQL - Actualizar contacto en la base de datos MySQL
+    const [result] = await pool.query<ResultSetHeader>(
+      'UPDATE contacts SET name = ?, email = ?, phone = ?, type = ?, company = ? WHERE id = ?',
+      [name, email, phone, type, company || null, id]
+    );
+
+    if (result.affectedRows > 0) {
+      revalidatePath('/contacts');
+      return {
+        success: true,
+        message: 'Contacto actualizado exitosamente.',
+        contact: { ...validatedFields.data, id: id! },
+      };
+    } else {
+      return { success: false, message: 'Contacto no encontrado o sin cambios.' };
     }
-    DUMMY_CONTACTS_DB[index] = { ...DUMMY_CONTACTS_DB[index], ...validatedFields.data };
-    console.log('Contacto actualizado (simulado):', DUMMY_CONTACTS_DB[index]);
-    
-    revalidatePath('/contacts');
-    return {
-      success: true,
-      message: 'Contacto actualizado exitosamente.',
-      contact: DUMMY_CONTACTS_DB[index],
-    };
-  } catch (error) {
-    console.error('Error al actualizar contacto (simulado):', error);
+  } catch (error: any) {
+    console.error('Error al actualizar contacto (MySQL):', error);
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
+        return { success: false, message: 'Error: El correo electrónico ya existe para otro contacto.', errors: { email: ['Este correo electrónico ya está registrado para otro contacto.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al actualizar contacto.',
@@ -125,24 +160,30 @@ export async function deleteContact(
   if (!contactId) {
     return { success: false, message: 'ID de contacto requerido para eliminar.' };
   }
+  
+  if (!pool) {
+    console.error('Error: Connection pool not available in deleteContact.');
+    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+  }
 
   try {
-    // TODO: Lógica para eliminar de la base de datos MySQL
-    const initialLength = DUMMY_CONTACTS_DB.length;
-    DUMMY_CONTACTS_DB = DUMMY_CONTACTS_DB.filter(c => c.id !== contactId);
+    // TODO: SQL - Eliminar contacto de la base de datos MySQL
+    const [result] = await pool.query<ResultSetHeader>(
+      'DELETE FROM contacts WHERE id = ?',
+      [contactId]
+    );
     
-    if (DUMMY_CONTACTS_DB.length === initialLength) {
+    if (result.affectedRows > 0) {
+        revalidatePath('/contacts');
+        return {
+          success: true,
+          message: 'Contacto eliminado exitosamente.',
+        };
+    } else {
         return { success: false, message: 'Contacto no encontrado para eliminar.' };
     }
-    console.log('Contacto eliminado (simulado), ID:', contactId);
-
-    revalidatePath('/contacts');
-    return {
-      success: true,
-      message: 'Contacto eliminado exitosamente.',
-    };
   } catch (error) {
-    console.error('Error al eliminar contacto (simulado):', error);
+    console.error('Error al eliminar contacto (MySQL):', error);
     return {
       success: false,
       message: 'Error del servidor al eliminar contacto.',
@@ -151,11 +192,21 @@ export async function deleteContact(
   }
 }
 
-// Esta función es para obtener los datos iniciales, en un backend real esto consultaría la DB.
-// Por ahora, la página de contactos usa datos hardcoded.
-// Si la página de contactos fuera un Server Component que fetchea datos, esta función sería útil.
-export async function getContacts() {
-  // TODO: Lógica para obtener contactos de la base de datos MySQL
-  console.log('Obteniendo contactos (simulado)');
-  return DUMMY_CONTACTS_DB;
+export async function getContacts(): Promise<ContactFormInput[]> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getContacts.');
+    return []; // Devolver array vacío o manejar error de forma apropiada
+  }
+  try {
+    // TODO: SQL - Obtener contactos de la base de datos MySQL
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, email, phone, type, company FROM contacts ORDER BY name ASC');
+    // Convertir id a string para que coincida con ContactFormInput y el frontend
+    return rows.map(row => ({
+        ...row,
+        id: row.id.toString(),
+    })) as ContactFormInput[];
+  } catch (error) {
+    console.error('Error al obtener contactos (MySQL):', error);
+    return []; // Devolver array vacío en caso de error
+  }
 }
