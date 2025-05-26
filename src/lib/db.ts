@@ -1,12 +1,14 @@
 // src/lib/db.ts
 import mysql from 'mysql2/promise';
 
-// TODO: Mueve estas configuraciones a variables de entorno para producción.
+// Lee la configuración de la base de datos desde variables de entorno
+// Proporciona valores por defecto si las variables de entorno no están configuradas
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '', // Dejar vacío si no hay contraseña para root en XAMPP
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'ubm_db',
+  port: parseInt(process.env.DB_PORT || '3306', 10), // Puerto por defecto de MySQL es 3306
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -16,7 +18,12 @@ let pool: mysql.Pool;
 
 try {
   pool = mysql.createPool(dbConfig);
-  console.log("MySQL Connection Pool created successfully.");
+  console.log("MySQL Connection Pool created successfully using config:", {
+    host: dbConfig.host,
+    user: dbConfig.user,
+    database: dbConfig.database,
+    port: dbConfig.port
+  });
 
   // Opcional: Probar la conexión al iniciar
   // pool.getConnection()
