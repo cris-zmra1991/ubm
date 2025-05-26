@@ -37,31 +37,31 @@ export default function LoginPage() {
               </text>
             </svg>
           </div>
-          <CardTitle className="text-3xl font-bold text-foreground">Welcome Back</CardTitle>
+          <CardTitle className="text-3xl font-bold text-foreground">Bienvenido de Nuevo</CardTitle>
           <CardDescription className="text-muted-foreground">
-            Enter your credentials to access your Unified Business Manager.
+            Ingresa tus credenciales para acceder a tu Gestor Unificado de Negocios.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-8 pb-6 space-y-6">
           <form className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username" className="text-foreground">Username</Label>
+              <Label htmlFor="username" className="text-foreground">Nombre de usuario</Label>
               <Input 
                 id="username" 
                 type="text" 
-                placeholder="e.g., johndoe" 
+                placeholder="ej., juanperez" 
                 required 
                 className="bg-input/50 border-border focus:border-primary"
               />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-foreground">Password</Label>
+                <Label htmlFor="password" className="text-foreground">Contraseña</Label>
                 <Link
                   href="#"
                   className="text-sm font-medium text-primary hover:underline"
                 >
-                  Forgot password?
+                  ¿Olvidaste tu contraseña?
                 </Link>
               </div>
               <Input 
@@ -73,15 +73,15 @@ export default function LoginPage() {
               />
             </div>
             <Button className="w-full !mt-8" type="submit">
-              <LogIn className="mr-2 h-5 w-5" /> Login
+              <LogIn className="mr-2 h-5 w-5" /> Iniciar Sesión
             </Button>
           </form>
         </CardContent>
         <CardFooter className="px-8 pb-8 text-center">
           <p className="text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
+            ¿No tienes una cuenta?{" "}
             <Link href="#" className="font-semibold text-primary hover:underline">
-              Sign up
+              Regístrate
             </Link>
           </p>
         </CardFooter>

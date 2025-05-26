@@ -1,7 +1,7 @@
 
 "use client";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,20 +10,22 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Settings as SettingsIcon, PlusCircle, Users, Building, SlidersHorizontal, MoreHorizontal, Edit, Trash2, ShieldCheck, KeyRound, Bell } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+
 
 interface User {
   id: string;
   username: string;
   email: string;
-  role: "Admin" | "Manager" | "User";
-  status: "Active" | "Inactive";
+  role: "Administrador" | "Gerente" | "Usuario";
+  status: "Activo" | "Inactivo";
   lastLogin: string;
 }
 
 const usersData: User[] = [
-  { id: "1", username: "johndoe", email: "john.doe@example.com", role: "Admin", status: "Active", lastLogin: "2024-07-22 10:00 AM" },
-  { id: "2", username: "janesmith", email: "jane.smith@example.com", role: "Manager", status: "Active", lastLogin: "2024-07-21 03:00 PM" },
-  { id: "3", username: "bobbuilder", email: "bob.builder@example.com", role: "User", status: "Inactive", lastLogin: "2024-06-15 09:00 AM" },
+  { id: "1", username: "johndoe", email: "john.doe@example.com", role: "Administrador", status: "Activo", lastLogin: "2024-07-22 10:00 AM" },
+  { id: "2", username: "janesmith", email: "jane.smith@example.com", role: "Gerente", status: "Activo", lastLogin: "2024-07-21 03:00 PM" },
+  { id: "3", username: "bobbuilder", email: "bob.builder@example.com", role: "Usuario", status: "Inactivo", lastLogin: "2024-06-15 09:00 AM" },
 ];
 
 
@@ -35,9 +37,9 @@ export default function AdminPage() {
           <div className="flex items-center gap-3">
             <SettingsIcon className="h-8 w-8 text-primary" />
             <div>
-                <CardTitle className="text-3xl font-bold">Admin Configuration</CardTitle>
+                <CardTitle className="text-3xl font-bold">Configuración de Administración</CardTitle>
                 <CardDescription className="text-lg text-muted-foreground">
-                Manage application-wide settings, users, and system configurations.
+                Gestiona la configuración general de la aplicación, usuarios y configuraciones del sistema.
                 </CardDescription>
             </div>
           </div>
@@ -45,84 +47,84 @@ export default function AdminPage() {
         <CardContent>
           <Tabs defaultValue="general" className="w-full">
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 mb-6">
-              <TabsTrigger value="general"><Building className="mr-2 h-4 w-4" />General Settings</TabsTrigger>
-              <TabsTrigger value="users"><Users className="mr-2 h-4 w-4" />User Management</TabsTrigger>
-              <TabsTrigger value="security"><ShieldCheck className="mr-2 h-4 w-4" />Security</TabsTrigger>
-              <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" />Notifications</TabsTrigger>
-              <TabsTrigger value="integrations"><SlidersHorizontal className="mr-2 h-4 w-4" />Integrations</TabsTrigger>
+              <TabsTrigger value="general"><Building className="mr-2 h-4 w-4" />Configuración General</TabsTrigger>
+              <TabsTrigger value="users"><Users className="mr-2 h-4 w-4" />Gestión de Usuarios</TabsTrigger>
+              <TabsTrigger value="security"><ShieldCheck className="mr-2 h-4 w-4" />Seguridad</TabsTrigger>
+              <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" />Notificaciones</TabsTrigger>
+              <TabsTrigger value="integrations"><SlidersHorizontal className="mr-2 h-4 w-4" />Integraciones</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Company Information</CardTitle>
-                  <CardDescription>Set up your organization's details.</CardDescription>
+                  <CardTitle>Información de la Empresa</CardTitle>
+                  <CardDescription>Configura los detalles de tu organización.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="companyName">Company Name</Label>
+                      <Label htmlFor="companyName">Nombre de la Empresa</Label>
                       <Input id="companyName" defaultValue="Unified Business Solutions" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="companyEmail">Company Email</Label>
+                      <Label htmlFor="companyEmail">Correo Electrónico de la Empresa</Label>
                       <Input id="companyEmail" type="email" defaultValue="contact@ubm.com" />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                      <Label htmlFor="companyAddress">Company Address</Label>
+                      <Label htmlFor="companyAddress">Dirección de la Empresa</Label>
                       <Input id="companyAddress" defaultValue="123 Main Street, Business City, BC 12345" />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div className="space-y-1.5">
-                      <Label htmlFor="currency">Default Currency</Label>
+                      <Label htmlFor="currency">Moneda Predeterminada</Label>
                       <Select defaultValue="EUR">
                         <SelectTrigger id="currency">
-                          <SelectValue placeholder="Select currency" />
+                          <SelectValue placeholder="Seleccionar moneda" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="EUR">Euro (€)</SelectItem>
-                          <SelectItem value="USD">US Dollar ($)</SelectItem>
-                          <SelectItem value="GBP">British Pound (£)</SelectItem>
+                          <SelectItem value="USD">Dólar Estadounidense ($)</SelectItem>
+                          <SelectItem value="GBP">Libra Esterlina (£)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                        <Label htmlFor="timezone">Timezone</Label>
+                        <Label htmlFor="timezone">Zona Horaria</Label>
                         <Select defaultValue="Europe/Paris">
                             <SelectTrigger id="timezone">
-                            <SelectValue placeholder="Select timezone" />
+                            <SelectValue placeholder="Seleccionar zona horaria" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Europe/Paris">Europe/Paris (GMT+2)</SelectItem>
-                                <SelectItem value="America/New_York">America/New York (EST)</SelectItem>
-                                <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                                <SelectItem value="Europe/Paris">Europa/París (GMT+2)</SelectItem>
+                                <SelectItem value="America/New_York">América/Nueva York (EST)</SelectItem>
+                                <SelectItem value="Asia/Tokyo">Asia/Tokio (JST)</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
                   </div>
                 </CardContent>
                 <CardFooter>
-                    <Button>Save General Settings</Button>
+                    <Button>Guardar Configuración General</Button>
                 </CardFooter>
               </Card>
             </TabsContent>
 
             <TabsContent value="users" className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-semibold">Manage Users</h3>
-                <Button><PlusCircle className="mr-2 h-4 w-4"/> Add New User</Button>
+                <h3 className="text-xl font-semibold">Gestionar Usuarios</h3>
+                <Button><PlusCircle className="mr-2 h-4 w-4"/> Añadir Nuevo Usuario</Button>
               </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>Nombre de Usuario</TableHead>
+                      <TableHead>Correo Electrónico</TableHead>
+                      <TableHead>Rol</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Último Acceso</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -132,15 +134,15 @@ export default function AdminPage() {
                         <TableCell>{user.email}</TableCell>
                         <TableCell>{user.role}</TableCell>
                         <TableCell>
-                          <Badge variant={user.status === "Active" ? "default" : "outline"}
-                            className={user.status === "Active" ? "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30" : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30"}
+                          <Badge variant={user.status === "Activo" ? "default" : "outline"}
+                            className={user.status === "Activo" ? "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30" : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30"}
                           >
                             {user.status}
                           </Badge>
                         </TableCell>
                         <TableCell>{user.lastLogin}</TableCell>
                         <TableCell className="text-right">
-                           <Button variant="ghost" size="sm"><Edit className="mr-2 h-4 w-4" /> Edit</Button>
+                           <Button variant="ghost" size="sm"><Edit className="mr-2 h-4 w-4" /> Editar</Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -152,37 +154,37 @@ export default function AdminPage() {
             <TabsContent value="security" className="space-y-6">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Security Settings</CardTitle>
-                        <CardDescription>Configure security policies and access controls.</CardDescription>
+                        <CardTitle>Configuración de Seguridad</CardTitle>
+                        <CardDescription>Configura políticas de seguridad y controles de acceso.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-center justify-between p-4 border rounded-lg">
                             <div>
-                                <Label htmlFor="mfa" className="font-semibold">Two-Factor Authentication (2FA)</Label>
-                                <p className="text-sm text-muted-foreground">Require 2FA for all users.</p>
+                                <Label htmlFor="mfa" className="font-semibold">Autenticación de Dos Factores (2FA)</Label>
+                                <p className="text-sm text-muted-foreground">Requerir 2FA para todos los usuarios.</p>
                             </div>
                             <Switch id="mfa" />
                         </div>
                          <div className="space-y-1.5">
-                            <Label htmlFor="passwordPolicy">Password Policy</Label>
+                            <Label htmlFor="passwordPolicy">Política de Contraseñas</Label>
                             <Select defaultValue="medium">
                                 <SelectTrigger id="passwordPolicy">
-                                <SelectValue placeholder="Select password policy" />
+                                <SelectValue placeholder="Seleccionar política de contraseñas" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="simple">Simple (Min. 8 characters)</SelectItem>
-                                    <SelectItem value="medium">Medium (Min. 10 chars, 1 number, 1 special)</SelectItem>
-                                    <SelectItem value="strong">Strong (Min. 12 chars, 1 upper, 1 lower, 1 number, 1 special)</SelectItem>
+                                    <SelectItem value="simple">Simple (Mín. 8 caracteres)</SelectItem>
+                                    <SelectItem value="medium">Media (Mín. 10 car., 1 número, 1 especial)</SelectItem>
+                                    <SelectItem value="strong">Fuerte (Mín. 12 car., 1 mayús., 1 minús., 1 núm., 1 esp.)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                          <div className="space-y-1.5">
-                            <Label htmlFor="sessionTimeout">Session Timeout (minutes)</Label>
+                            <Label htmlFor="sessionTimeout">Tiempo de Sesión Agotado (minutos)</Label>
                             <Input id="sessionTimeout" type="number" defaultValue="30" />
                         </div>
                     </CardContent>
                     <CardFooter>
-                        <Button>Save Security Settings</Button>
+                        <Button>Guardar Configuración de Seguridad</Button>
                     </CardFooter>
                 </Card>
             </TabsContent>
@@ -190,34 +192,34 @@ export default function AdminPage() {
             <TabsContent value="notifications" className="space-y-6">
                  <Card>
                     <CardHeader>
-                        <CardTitle>Notification Settings</CardTitle>
-                        <CardDescription>Manage how and when notifications are sent.</CardDescription>
+                        <CardTitle>Configuración de Notificaciones</CardTitle>
+                        <CardDescription>Gestiona cómo y cuándo se envían las notificaciones.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-center justify-between p-4 border rounded-lg">
                             <div>
-                                <Label htmlFor="emailNotifications" className="font-semibold">Email Notifications</Label>
-                                <p className="text-sm text-muted-foreground">Enable or disable system-wide email notifications.</p>
+                                <Label htmlFor="emailNotifications" className="font-semibold">Notificaciones por Correo Electrónico</Label>
+                                <p className="text-sm text-muted-foreground">Habilita o deshabilita las notificaciones por correo electrónico para todo el sistema.</p>
                             </div>
                             <Switch id="emailNotifications" defaultChecked />
                         </div>
                          <div className="flex items-center justify-between p-4 border rounded-lg">
                             <div>
-                                <Label htmlFor="newSaleNotify" className="font-semibold">New Sale Notification</Label>
-                                <p className="text-sm text-muted-foreground">Notify admins on new sales.</p>
+                                <Label htmlFor="newSaleNotify" className="font-semibold">Notificación de Nueva Venta</Label>
+                                <p className="text-sm text-muted-foreground">Notificar a los administradores sobre nuevas ventas.</p>
                             </div>
                             <Switch id="newSaleNotify" defaultChecked />
                         </div>
                          <div className="flex items-center justify-between p-4 border rounded-lg">
                             <div>
-                                <Label htmlFor="lowStockNotify" className="font-semibold">Low Stock Alerts</Label>
-                                <p className="text-sm text-muted-foreground">Send alerts for low inventory items.</p>
+                                <Label htmlFor="lowStockNotify" className="font-semibold">Alertas de Bajo Stock</Label>
+                                <p className="text-sm text-muted-foreground">Enviar alertas para artículos con inventario bajo.</p>
                             </div>
                             <Switch id="lowStockNotify" defaultChecked />
                         </div>
                     </CardContent>
                      <CardFooter>
-                        <Button>Save Notification Settings</Button>
+                        <Button>Guardar Configuración de Notificaciones</Button>
                     </CardFooter>
                 </Card>
             </TabsContent>
@@ -225,15 +227,15 @@ export default function AdminPage() {
             <TabsContent value="integrations">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Integrations & API</CardTitle>
-                        <CardDescription>Connect with other services and manage API keys.</CardDescription>
+                        <CardTitle>Integraciones y API</CardTitle>
+                        <CardDescription>Conéctate con otros servicios y gestiona claves API.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
                             <KeyRound className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                            <p className="text-muted-foreground">API key management and third-party integrations will appear here.</p>
-                            <p className="text-xs text-muted-foreground mt-1">For example: payment gateways, email marketing services, etc.</p>
-                             <Button variant="secondary" className="mt-4">Manage API Keys</Button>
+                            <p className="text-muted-foreground">La gestión de claves API e integraciones de terceros aparecerá aquí.</p>
+                            <p className="text-xs text-muted-foreground mt-1">Por ejemplo: pasarelas de pago, servicios de marketing por correo electrónico, etc.</p>
+                             <Button variant="secondary" className="mt-4">Gestionar Claves API</Button>
                         </div>
                     </CardContent>
                 </Card>

@@ -24,11 +24,11 @@ interface InventoryItem {
 }
 
 const inventoryData: InventoryItem[] = [
-  { id: "1", name: "Wireless Mouse Pro", sku: "WM-PRO-001", category: "Electronics", currentStock: 45, reorderLevel: 20, unitPrice: 29.99, imageUrl: "https://placehold.co/60x60.png?text=Mouse", supplier: "TechSupplies Ltd." },
-  { id: "2", name: "Ergonomic Keyboard", sku: "EK-BLK-005", category: "Electronics", currentStock: 15, reorderLevel: 10, unitPrice: 79.50, imageUrl: "https://placehold.co/60x60.png?text=Keyboard", supplier: "OfficeComfort Inc." },
-  { id: "3", name: "A4 Printer Paper (500 Sheets)", sku: "PP-A4-500", category: "Office Supplies", currentStock: 150, reorderLevel: 50, unitPrice: 5.99, supplier: "PaperMill Corp." },
-  { id: "4", name: "Organic Coffee Beans (1kg)", sku: "CF-ORG-1KG", category: "Pantry", currentStock: 8, reorderLevel: 10, unitPrice: 18.75, imageUrl: "https://placehold.co/60x60.png?text=Coffee", supplier: "Beans R Us" },
-  { id: "5", name: "Cleaning Spray (All Purpose)", sku: "CS-AP-500ML", category: "Cleaning", currentStock: 30, reorderLevel: 15, unitPrice: 3.49, supplier: "CleanCo" },
+  { id: "1", name: "Ratón Inalámbrico Pro", sku: "WM-PRO-001", category: "Electrónica", currentStock: 45, reorderLevel: 20, unitPrice: 29.99, imageUrl: "https://placehold.co/60x60.png?text=Mouse", supplier: "TechSupplies Ltd." },
+  { id: "2", name: "Teclado Ergonómico", sku: "EK-BLK-005", category: "Electrónica", currentStock: 15, reorderLevel: 10, unitPrice: 79.50, imageUrl: "https://placehold.co/60x60.png?text=Keyboard", supplier: "OfficeComfort Inc." },
+  { id: "3", name: "Papel de Impresora A4 (500 Hojas)", sku: "PP-A4-500", category: "Suministros de Oficina", currentStock: 150, reorderLevel: 50, unitPrice: 5.99, supplier: "PaperMill Corp." },
+  { id: "4", name: "Granos de Café Orgánico (1kg)", sku: "CF-ORG-1KG", category: "Despensa", currentStock: 8, reorderLevel: 10, unitPrice: 18.75, imageUrl: "https://placehold.co/60x60.png?text=Coffee", supplier: "Beans R Us" },
+  { id: "5", name: "Spray Limpiador (Multiusos)", sku: "CS-AP-500ML", category: "Limpieza", currentStock: 30, reorderLevel: 15, unitPrice: 3.49, supplier: "CleanCo" },
 ];
 
 export default function InventoryPage() {
@@ -43,14 +43,14 @@ export default function InventoryPage() {
             <div className="flex items-center gap-3">
               <Boxes className="h-8 w-8 text-primary" />
               <div>
-                <CardTitle className="text-3xl font-bold">Inventory Management</CardTitle>
+                <CardTitle className="text-3xl font-bold">Gestión de Inventario</CardTitle>
                 <CardDescription className="text-lg text-muted-foreground">
-                  Track stock levels, manage products, and integrate with sales & purchases.
+                  Realiza seguimiento de niveles de stock, gestiona productos e integra con ventas y compras.
                 </CardDescription>
               </div>
             </div>
             <Button size="lg">
-              <PlusCircle className="mr-2 h-5 w-5" /> Add New Item
+              <PlusCircle className="mr-2 h-5 w-5" /> Añadir Nuevo Artículo
             </Button>
           </div>
         </CardHeader>
@@ -58,32 +58,32 @@ export default function InventoryPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Unique Items</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Artículos Únicos Totales</CardTitle>
                 <Package className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{inventoryData.length}</div>
-                <p className="text-xs text-muted-foreground">Different products in stock</p>
+                <p className="text-xs text-muted-foreground">Productos diferentes en stock</p>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Low Stock Items</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Artículos con Bajo Stock</CardTitle>
                 <AlertTriangle className="h-5 w-5 text-destructive" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{lowStockItems.length}</div>
-                <p className="text-xs text-muted-foreground">Items at or below reorder level</p>
+                <p className="text-xs text-muted-foreground">Artículos en o por debajo del nivel de pedido</p>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Inventory Value</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Valor Total del Inventario</CardTitle>
                 <DollarSign className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">€{totalInventoryValue.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">Estimated value of all stock</p>
+                <p className="text-xs text-muted-foreground">Valor estimado de todo el stock</p>
               </CardContent>
             </Card>
           </div>
@@ -91,12 +91,12 @@ export default function InventoryPage() {
           {lowStockItems.length > 0 && (
             <Alert variant="destructive" className="border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive">
               <AlertTriangle className="h-5 w-5" />
-              <AlertTitle>Low Stock Alert!</AlertTitle>
+              <AlertTitle>¡Alerta de Bajo Stock!</AlertTitle>
               <AlertDescription>
-                {lowStockItems.length} item(s) are currently at or below their reorder level. Consider placing new purchase orders.
+                {lowStockItems.length} artículo(s) están actualmente en o por debajo de su nivel de pedido. Considera realizar nuevas órdenes de compra.
                 <ul className="list-disc list-inside mt-1 text-xs">
                   {lowStockItems.slice(0,3).map(item => <li key={item.id}>{item.name} (Stock: {item.currentStock})</li>)}
-                  {lowStockItems.length > 3 && <li>And {lowStockItems.length - 3} more...</li>}
+                  {lowStockItems.length > 3 && <li>Y {lowStockItems.length - 3} más...</li>}
                 </ul>
               </AlertDescription>
             </Alert>
@@ -105,10 +105,10 @@ export default function InventoryPage() {
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input placeholder="Search inventory (e.g., name, SKU, category)..." className="pl-10 w-full" />
+              <Input placeholder="Buscar en inventario (ej., nombre, SKU, categoría)..." className="pl-10 w-full" />
             </div>
             <Button variant="outline">
-              <Filter className="mr-2 h-5 w-5" /> Filter
+              <Filter className="mr-2 h-5 w-5" /> Filtrar
             </Button>
           </div>
 
@@ -116,15 +116,15 @@ export default function InventoryPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[80px]">Image</TableHead>
-                  <TableHead>Product Name</TableHead>
+                  <TableHead className="w-[80px]">Imagen</TableHead>
+                  <TableHead>Nombre del Producto</TableHead>
                   <TableHead>SKU</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">Current Stock</TableHead>
-                  <TableHead className="text-right">Reorder Level</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead className="text-right">Stock Actual</TableHead>
+                  <TableHead className="text-right">Nivel de Pedido</TableHead>
+                  <TableHead className="text-right">Precio Unitario</TableHead>
+                  <TableHead>Proveedor</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -132,12 +132,12 @@ export default function InventoryPage() {
                   <TableRow key={item.id} className={item.currentStock <= item.reorderLevel ? "bg-red-500/5 dark:bg-red-700/10" : ""}>
                     <TableCell>
                       <Image 
-                        src={item.imageUrl || "https://placehold.co/60x60.png?text=Item"} 
+                        src={item.imageUrl || "https://placehold.co/60x60.png?text=Artículo"} 
                         alt={item.name} 
                         width={40} 
                         height={40} 
                         className="rounded" 
-                        data-ai-hint={item.category === "Electronics" ? "electronic device" : "product image"}
+                        data-ai-hint={item.category === "Electrónica" ? "dispositivo electrónico" : "imagen producto"}
                       />
                     </TableCell>
                     <TableCell className="font-medium">{item.name}</TableCell>
@@ -146,7 +146,7 @@ export default function InventoryPage() {
                     <TableCell className="text-right font-semibold">{item.currentStock}</TableCell>
                     <TableCell className="text-right">{item.reorderLevel}</TableCell>
                     <TableCell className="text-right">€{item.unitPrice.toFixed(2)}</TableCell>
-                    <TableCell>{item.supplier || "N/A"}</TableCell>
+                    <TableCell>{item.supplier || "N/D"}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -156,17 +156,17 @@ export default function InventoryPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem>
-                            <Edit className="mr-2 h-4 w-4" /> Edit Item
+                            <Edit className="mr-2 h-4 w-4" /> Editar Artículo
                           </DropdownMenuItem>
                           <DropdownMenuItem>
-                            <TrendingUp className="mr-2 h-4 w-4" /> Adjust Stock
+                            <TrendingUp className="mr-2 h-4 w-4" /> Ajustar Stock
                           </DropdownMenuItem>
                            <DropdownMenuItem>
-                            <Archive className="mr-2 h-4 w-4" /> Archive Item
+                            <Archive className="mr-2 h-4 w-4" /> Archivar Artículo
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" /> Delete Item
+                            <Trash2 className="mr-2 h-4 w-4" /> Eliminar Artículo
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -176,7 +176,7 @@ export default function InventoryPage() {
                 {inventoryData.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
-                      No items in inventory. Add your first product!
+                      No hay artículos en el inventario. ¡Añade tu primer producto!
                     </TableCell>
                   </TableRow>
                 )}
@@ -185,11 +185,11 @@ export default function InventoryPage() {
           </div>
         </CardContent>
         <CardFooter className="flex justify-between items-center">
-          <p className="text-sm text-muted-foreground">Showing {inventoryData.length} of {inventoryData.length} items.</p>
+          <p className="text-sm text-muted-foreground">Mostrando {inventoryData.length} de {inventoryData.length} artículos.</p>
           {/* Pagination placeholder */}
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>Previous</Button>
-            <Button variant="outline" size="sm" disabled>Next</Button>
+            <Button variant="outline" size="sm" disabled>Anterior</Button>
+            <Button variant="outline" size="sm" disabled>Siguiente</Button>
           </div>
         </CardFooter>
       </Card>

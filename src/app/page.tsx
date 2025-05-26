@@ -14,10 +14,10 @@ interface QuickAccessItem {
 }
 
 const quickAccessItems: QuickAccessItem[] = [
-  { title: "Contacts", description: "Manage clients & providers", icon: Users, href: "/contacts", bgColorClass: "bg-blue-100 dark:bg-blue-900", textColorClass: "text-blue-700 dark:text-blue-300", borderColorClass: "border-blue-300 dark:border-blue-700" },
-  { title: "Purchases", description: "Track your purchases", icon: ShoppingCart, href: "/purchases", bgColorClass: "bg-green-100 dark:bg-green-900", textColorClass: "text-green-700 dark:text-green-300", borderColorClass: "border-green-300 dark:border-green-700" },
-  { title: "Sales", description: "Oversee sales operations", icon: Store, href: "/sales", bgColorClass: "bg-purple-100 dark:bg-purple-900", textColorClass: "text-purple-700 dark:text-purple-300", borderColorClass: "border-purple-300 dark:border-purple-700" },
-  { title: "Expenses", description: "Record and manage expenses", icon: CreditCard, href: "/expenses", bgColorClass: "bg-red-100 dark:bg-red-900", textColorClass: "text-red-700 dark:text-red-300", borderColorClass: "border-red-300 dark:border-red-700" },
+  { title: "Contactos", description: "Gestiona clientes y proveedores", icon: Users, href: "/contacts", bgColorClass: "bg-blue-100 dark:bg-blue-900", textColorClass: "text-blue-700 dark:text-blue-300", borderColorClass: "border-blue-300 dark:border-blue-700" },
+  { title: "Compras", description: "Realiza seguimiento de tus compras", icon: ShoppingCart, href: "/purchases", bgColorClass: "bg-green-100 dark:bg-green-900", textColorClass: "text-green-700 dark:text-green-300", borderColorClass: "border-green-300 dark:border-green-700" },
+  { title: "Ventas", description: "Supervisa las operaciones de venta", icon: Store, href: "/sales", bgColorClass: "bg-purple-100 dark:bg-purple-900", textColorClass: "text-purple-700 dark:text-purple-300", borderColorClass: "border-purple-300 dark:border-purple-700" },
+  { title: "Gastos", description: "Registra y gestiona gastos", icon: CreditCard, href: "/expenses", bgColorClass: "bg-red-100 dark:bg-red-900", textColorClass: "text-red-700 dark:text-red-300", borderColorClass: "border-red-300 dark:border-red-700" },
 ];
 
 interface MetricItem {
@@ -31,10 +31,10 @@ interface MetricItem {
 }
 
 const metricItems: MetricItem[] = [
-  { title: "Last Month's Sales", value: "€12,345", icon: DollarSign, change: "+10.2%", changeType: 'positive', iconBgColorClass: "bg-green-100 dark:bg-green-800", iconTextColorClass: "text-green-600 dark:text-green-300" },
-  { title: "Last Month's Purchases", value: "€5,678", icon: ShoppingCart, change: "+3.1%", changeType: 'positive', iconBgColorClass: "bg-blue-100 dark:bg-blue-800", iconTextColorClass: "text-blue-600 dark:text-blue-300" },
-  { title: "Last Month's Expenses", value: "€1,234", icon: CreditCard, change: "-2.5%", changeType: 'negative', iconBgColorClass: "bg-red-100 dark:bg-red-800", iconTextColorClass: "text-red-600 dark:text-red-300" },
-  { title: "New Customers", value: "15", icon: UserPlus, change: "+8 this month", changeType: 'positive', iconBgColorClass: "bg-purple-100 dark:bg-purple-800", iconTextColorClass: "text-purple-600 dark:text-purple-300" },
+  { title: "Ventas del Último Mes", value: "€12,345", icon: DollarSign, change: "+10.2%", changeType: 'positive', iconBgColorClass: "bg-green-100 dark:bg-green-800", iconTextColorClass: "text-green-600 dark:text-green-300" },
+  { title: "Compras del Último Mes", value: "€5,678", icon: ShoppingCart, change: "+3.1%", changeType: 'positive', iconBgColorClass: "bg-blue-100 dark:bg-blue-800", iconTextColorClass: "text-blue-600 dark:text-blue-300" },
+  { title: "Gastos del Último Mes", value: "€1,234", icon: CreditCard, change: "-2.5%", changeType: 'negative', iconBgColorClass: "bg-red-100 dark:bg-red-800", iconTextColorClass: "text-red-600 dark:text-red-300" },
+  { title: "Clientes Nuevos", value: "15", icon: UserPlus, change: "+8 este mes", changeType: 'positive', iconBgColorClass: "bg-purple-100 dark:bg-purple-800", iconTextColorClass: "text-purple-600 dark:text-purple-300" },
 ];
 
 
@@ -43,14 +43,14 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <Card className="shadow-lg border-border">
         <CardHeader>
-          <CardTitle className="text-3xl font-bold text-primary">Welcome to Unified Business Manager</CardTitle>
+          <CardTitle className="text-3xl font-bold text-primary">Bienvenido al Gestor Unificado de Negocios</CardTitle>
           <CardDescription className="text-lg text-muted-foreground">
-            Your central hub for managing all aspects of your business. Streamline your operations and make informed decisions.
+            Tu centro de control para gestionar todos los aspectos de tu negocio. Optimiza tus operaciones y toma decisiones informadas.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <p>
-            Navigate through modules using the sidebar to manage contacts, purchases, sales, expenses, accounting, inventory, and administrative settings.
+            Navega por los módulos usando la barra lateral para gestionar contactos, compras, ventas, gastos, contabilidad, inventario y configuraciones administrativas.
           </p>
         </CardContent>
       </Card>
@@ -83,7 +83,7 @@ export default function DashboardPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-semibold mb-4 text-foreground">Quick Access</h2>
+        <h2 className="text-2xl font-semibold mb-4 text-foreground">Acceso Rápido</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {quickAccessItems.map((item) => (
             <Card key={item.title} className={`shadow-md hover:shadow-xl transition-shadow duration-300 border ${item.borderColorClass} ${item.bgColorClass}`}>
@@ -95,7 +95,7 @@ export default function DashboardPage() {
                 <p className="text-sm text-muted-foreground mb-4">{item.description}</p>
                 <Button variant="outline" size="sm" asChild className="border-primary/50 text-primary hover:bg-primary/10">
                   <Link href={item.href}>
-                    Go to {item.title} <ArrowRight className="ml-2 h-4 w-4" />
+                    Ir a {item.title} <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
               </CardContent>
@@ -105,21 +105,21 @@ export default function DashboardPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-semibold mb-4 text-foreground">Key Modules Overview</h2>
+        <h2 className="text-2xl font-semibold mb-4 text-foreground">Resumen de Módulos Clave</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="shadow-md border-border">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <Calculator className="h-8 w-8 text-accent" />
-                <CardTitle>Accounting</CardTitle>
+                <CardTitle>Contabilidad</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
               <CardDescription>
-                Manage financial records, generate reports, and keep track of your business's financial health.
+                Gestiona registros financieros, genera informes y realiza un seguimiento de la salud financiera de tu negocio.
               </CardDescription>
               <Button variant="link" asChild className="p-0 mt-2 text-primary">
-                <Link href="/accounting">Explore Accounting <ArrowRight className="ml-1 h-4 w-4" /></Link>
+                <Link href="/accounting">Explorar Contabilidad <ArrowRight className="ml-1 h-4 w-4" /></Link>
               </Button>
             </CardContent>
           </Card>
@@ -127,15 +127,15 @@ export default function DashboardPage() {
             <CardHeader>
               <div className="flex items-center gap-3">
                 <Boxes className="h-8 w-8 text-accent" />
-                <CardTitle>Inventory</CardTitle>
+                <CardTitle>Inventario</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
               <CardDescription>
-                Oversee stock levels, manage product information, and integrate with sales and purchases.
+                Supervisa los niveles de stock, gestiona la información de productos e integra con ventas y compras.
               </CardDescription>
                <Button variant="link" asChild className="p-0 mt-2 text-primary">
-                <Link href="/inventory">Manage Inventory <ArrowRight className="ml-1 h-4 w-4" /></Link>
+                <Link href="/inventory">Gestionar Inventario <ArrowRight className="ml-1 h-4 w-4" /></Link>
               </Button>
             </CardContent>
           </Card>

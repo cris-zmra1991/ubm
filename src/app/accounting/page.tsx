@@ -12,21 +12,21 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from 
 import type { ChartConfig } from "@/components/ui/chart"
 
 const chartData = [
-  { month: "January", revenue: 1860, expenses: 800 },
-  { month: "February", revenue: 3050, expenses: 1200 },
-  { month: "March", revenue: 2370, expenses: 950 },
-  { month: "April", revenue: 730, expenses: 1100 },
-  { month: "May", revenue: 2090, expenses: 850 },
-  { month: "June", revenue: 2140, expenses: 920 },
+  { month: "Enero", revenue: 1860, expenses: 800 },
+  { month: "Febrero", revenue: 3050, expenses: 1200 },
+  { month: "Marzo", revenue: 2370, expenses: 950 },
+  { month: "Abril", revenue: 730, expenses: 1100 },
+  { month: "Mayo", revenue: 2090, expenses: 850 },
+  { month: "Junio", revenue: 2140, expenses: 920 },
 ]
 
 const chartConfig = {
   revenue: {
-    label: "Revenue",
+    label: "Ingresos",
     color: "hsl(var(--chart-1))",
   },
   expenses: {
-    label: "Expenses",
+    label: "Gastos",
     color: "hsl(var(--chart-2))",
   },
 } satisfies ChartConfig
@@ -35,16 +35,16 @@ interface Account {
   id: string;
   code: string;
   name: string;
-  type: "Asset" | "Liability" | "Equity" | "Revenue" | "Expense";
+  type: "Activo" | "Pasivo" | "Patrimonio" | "Ingreso" | "Gasto";
   balance: number;
 }
 const chartOfAccountsData: Account[] = [
-  { id: "1", code: "1010", name: "Cash", type: "Asset", balance: 25000.75 },
-  { id: "2", code: "1200", name: "Accounts Receivable", type: "Asset", balance: 12500.00 },
-  { id: "3", code: "2010", name: "Accounts Payable", type: "Liability", balance: 8750.50 },
-  { id: "4", code: "3010", name: "Owner's Equity", type: "Equity", balance: 50000.00 },
-  { id: "5", code: "4010", name: "Sales Revenue", type: "Revenue", balance: 75000.25 },
-  { id: "6", code: "5010", name: "Office Expenses", type: "Expense", balance: 5250.00 },
+  { id: "1", code: "1010", name: "Efectivo", type: "Activo", balance: 25000.75 },
+  { id: "2", code: "1200", name: "Cuentas por Cobrar", type: "Activo", balance: 12500.00 },
+  { id: "3", code: "2010", name: "Cuentas por Pagar", type: "Pasivo", balance: 8750.50 },
+  { id: "4", code: "3010", name: "Patrimonio Neto", type: "Patrimonio", balance: 50000.00 },
+  { id: "5", code: "4010", name: "Ingresos por Ventas", type: "Ingreso", balance: 75000.25 },
+  { id: "6", code: "5010", name: "Gastos de Oficina", type: "Gasto", balance: 5250.00 },
 ];
 
 interface JournalEntry {
@@ -57,8 +57,8 @@ interface JournalEntry {
   amount: number;
 }
 const journalEntriesData: JournalEntry[] = [
- { id: "1", date: "2024-07-01", entryNumber: "JE-001", description: "Cash sale", debitAccount: "1010 Cash", creditAccount: "4010 Sales Revenue", amount: 500.00 },
- { id: "2", date: "2024-07-02", entryNumber: "JE-002", description: "Paid office rent", debitAccount: "5010 Office Expenses", creditAccount: "1010 Cash", amount: 1200.00 },
+ { id: "1", date: "2024-07-01", entryNumber: "JE-001", description: "Venta en efectivo", debitAccount: "1010 Efectivo", creditAccount: "4010 Ingresos por Ventas", amount: 500.00 },
+ { id: "2", date: "2024-07-02", entryNumber: "JE-002", description: "Pago de alquiler de oficina", debitAccount: "5010 Gastos de Oficina", creditAccount: "1010 Efectivo", amount: 1200.00 },
 ];
 
 export default function AccountingPage() {
@@ -69,9 +69,9 @@ export default function AccountingPage() {
           <div className="flex items-center gap-3">
             <Calculator className="h-8 w-8 text-primary" />
             <div>
-              <CardTitle className="text-3xl font-bold">Accounting</CardTitle>
+              <CardTitle className="text-3xl font-bold">Contabilidad</CardTitle>
               <CardDescription className="text-lg text-muted-foreground">
-                Manage financial records, generate reports, and track overall financial health.
+                Gestiona registros financieros, genera informes y realiza un seguimiento de la salud financiera general.
               </CardDescription>
             </div>
           </div>
@@ -79,50 +79,50 @@ export default function AccountingPage() {
         <CardContent>
           <Tabs defaultValue="dashboard" className="w-full">
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
-              <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-              <TabsTrigger value="chartOfAccounts">Chart of Accounts</TabsTrigger>
-              <TabsTrigger value="journalEntries">Journal Entries</TabsTrigger>
-              <TabsTrigger value="reports">Financial Reports</TabsTrigger>
-              <TabsTrigger value="reconciliation">Bank Reconciliation</TabsTrigger>
+              <TabsTrigger value="dashboard">Panel Principal</TabsTrigger>
+              <TabsTrigger value="chartOfAccounts">Plan de Cuentas</TabsTrigger>
+              <TabsTrigger value="journalEntries">Asientos Contables</TabsTrigger>
+              <TabsTrigger value="reports">Informes Financieros</TabsTrigger>
+              <TabsTrigger value="reconciliation">Conciliación Bancaria</TabsTrigger>
             </TabsList>
 
             <TabsContent value="dashboard" className="mt-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Revenue (YTD)</CardTitle>
+                    <CardTitle className="text-sm font-medium">Ingresos Totales (Acumulado Anual)</CardTitle>
                     <TrendingUp className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">€125,670.50</div>
-                    <p className="text-xs text-muted-foreground">+15.2% from last year</p>
+                    <p className="text-xs text-muted-foreground">+15.2% del año pasado</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Expenses (YTD)</CardTitle>
+                    <CardTitle className="text-sm font-medium">Gastos Totales (Acumulado Anual)</CardTitle>
                     <TrendingDown className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">€45,320.80</div>
-                    <p className="text-xs text-muted-foreground">+8.1% from last year</p>
+                    <p className="text-xs text-muted-foreground">+8.1% del año pasado</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Net Profit (YTD)</CardTitle>
+                    <CardTitle className="text-sm font-medium">Beneficio Neto (Acumulado Anual)</CardTitle>
                     <DollarSign className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">€80,349.70</div>
-                    <p className="text-xs text-muted-foreground" style={{color: 'hsl(var(--accent))'}}>+20.5% from last year</p>
+                    <p className="text-xs text-muted-foreground" style={{color: 'hsl(var(--accent))'}}>+20.5% del año pasado</p>
                   </CardContent>
                 </Card>
               </div>
               <Card>
                 <CardHeader>
-                  <CardTitle>Revenue vs Expenses Overview</CardTitle>
-                  <CardDescription>Last 6 months performance</CardDescription>
+                  <CardTitle>Resumen de Ingresos vs Gastos</CardTitle>
+                  <CardDescription>Rendimiento de los últimos 6 meses</CardDescription>
                 </CardHeader>
                 <CardContent className="h-[300px] w-full">
                   <ChartContainer config={chartConfig} className="h-full w-full">
@@ -144,17 +144,17 @@ export default function AccountingPage() {
 
             <TabsContent value="chartOfAccounts" className="mt-6">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Chart of Accounts</h3>
-                <Button><PlusCircle className="mr-2 h-4 w-4"/> Add Account</Button>
+                <h3 className="text-xl font-semibold">Plan de Cuentas</h3>
+                <Button><PlusCircle className="mr-2 h-4 w-4"/> Añadir Cuenta</Button>
               </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Account Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Balance</TableHead>
+                      <TableHead>Código</TableHead>
+                      <TableHead>Nombre de Cuenta</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="text-right">Saldo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -173,19 +173,19 @@ export default function AccountingPage() {
 
             <TabsContent value="journalEntries" className="mt-6">
                <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Journal Entries</h3>
-                <Button><PlusCircle className="mr-2 h-4 w-4"/> New Journal Entry</Button>
+                <h3 className="text-xl font-semibold">Asientos Contables</h3>
+                <Button><PlusCircle className="mr-2 h-4 w-4"/> Nuevo Asiento Contable</Button>
               </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Entry #</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Debit Account</TableHead>
-                      <TableHead>Credit Account</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>N° Asiento</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Cuenta de Débito</TableHead>
+                      <TableHead>Cuenta de Crédito</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -205,41 +205,41 @@ export default function AccountingPage() {
             </TabsContent>
 
             <TabsContent value="reports" className="mt-6 space-y-4">
-              <h3 className="text-xl font-semibold">Financial Reports</h3>
+              <h3 className="text-xl font-semibold">Informes Financieros</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
                   <FileText className="mr-3 h-6 w-6 text-primary" /> 
                   <div>
-                    <p className="font-semibold">Balance Sheet</p>
-                    <p className="text-xs text-muted-foreground text-left">View assets, liabilities, and equity.</p>
+                    <p className="font-semibold">Balance General</p>
+                    <p className="text-xs text-muted-foreground text-left">Ver activos, pasivos y patrimonio.</p>
                   </div>
                 </Button>
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
                   <FileText className="mr-3 h-6 w-6 text-primary" /> 
                   <div>
-                    <p className="font-semibold">Income Statement</p>
-                    <p className="text-xs text-muted-foreground text-left">Analyze revenues and expenses.</p>
+                    <p className="font-semibold">Estado de Resultados</p>
+                    <p className="text-xs text-muted-foreground text-left">Analizar ingresos y gastos.</p>
                   </div>
                 </Button>
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
                   <FileText className="mr-3 h-6 w-6 text-primary" /> 
                   <div>
-                    <p className="font-semibold">Cash Flow Statement</p>
-                    <p className="text-xs text-muted-foreground text-left">Track cash inflows and outflows.</p>
+                    <p className="font-semibold">Estado de Flujo de Efectivo</p>
+                    <p className="text-xs text-muted-foreground text-left">Seguimiento de entradas y salidas de efectivo.</p>
                   </div>
                 </Button>
                  <Button variant="outline" size="lg" className="justify-start h-auto py-4">
                   <FileText className="mr-3 h-6 w-6 text-primary" /> 
                   <div>
-                    <p className="font-semibold">Trial Balance</p>
-                    <p className="text-xs text-muted-foreground text-left">Verify debit and credit balances.</p>
+                    <p className="font-semibold">Balance de Comprobación</p>
+                    <p className="text-xs text-muted-foreground text-left">Verificar saldos deudores y acreedores.</p>
                   </div>
                 </Button>
                  <Button variant="outline" size="lg" className="justify-start h-auto py-4">
                   <FileText className="mr-3 h-6 w-6 text-primary" /> 
                   <div>
-                    <p className="font-semibold">General Ledger</p>
-                    <p className="text-xs text-muted-foreground text-left">View detailed transaction history.</p>
+                    <p className="font-semibold">Libro Mayor General</p>
+                    <p className="text-xs text-muted-foreground text-left">Ver historial detallado de transacciones.</p>
                   </div>
                 </Button>
               </div>
@@ -247,14 +247,14 @@ export default function AccountingPage() {
             
             <TabsContent value="reconciliation" className="mt-6">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Bank Reconciliation</h3>
-                 <Button><Landmark className="mr-2 h-4 w-4"/> Start New Reconciliation</Button>
+                <h3 className="text-xl font-semibold">Conciliación Bancaria</h3>
+                 <Button><Landmark className="mr-2 h-4 w-4"/> Iniciar Nueva Conciliación</Button>
               </div>
               <div className="min-h-[200px] flex items-center justify-center border-2 border-dashed border-border rounded-lg bg-muted/20 p-8 text-center">
                 <div>
                   <Landmark className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                  <p className="text-muted-foreground">Bank reconciliation features will be implemented here.</p>
-                  <p className="text-xs text-muted-foreground mt-1">Connect bank accounts, match transactions, and ensure your records are accurate.</p>
+                  <p className="text-muted-foreground">Las funciones de conciliación bancaria se implementarán aquí.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Conecta cuentas bancarias, concilia transacciones y asegura la precisión de tus registros.</p>
                 </div>
               </div>
             </TabsContent>

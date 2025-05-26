@@ -29,7 +29,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, LogOut, UserCircle, Settings } from 'lucide-react';
+import { ChevronDown, LogOut, UserCircle, Settings as SettingsIcon } from 'lucide-react'; // Renamed Settings to SettingsIcon
 
 interface AppShellProps {
   children: ReactNode;
@@ -62,7 +62,7 @@ function Sidebar_Internal({ navLinks, pathname }: { navLinks: NavLink[]; pathnam
       <SidebarHeader className="p-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
           <Logo className="w-auto h-8" />
-          { (open || state === "expanded") && <span className="font-semibold text-lg text-sidebar-foreground">Unified Manager</span>}
+          { (open || state === "expanded") && <span className="font-semibold text-lg text-sidebar-foreground">Gestor Unificado</span>}
         </Link>
       </SidebarHeader>
       <ScrollArea className="flex-1">
@@ -124,20 +124,20 @@ function UserMenu() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
-            <span>Profile</span>
+            <span>Perfil</span>
           </DropdownMenuItem>
           <DropdownMenuItem>
-            <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
+            <SettingsIcon className="mr-2 h-4 w-4" />
+            <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <LogOut className="mr-2 h-4 w-4" />
-            <span>Log out</span>
+            <span>Cerrar Sesión</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -158,20 +158,20 @@ function UserMenu() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
-            <span>Profile</span>
+            <span>Perfil</span>
           </DropdownMenuItem>
           <DropdownMenuItem>
-            <Settings className="mr-2 h-4 w-4" />
-            <span>Settings</span>
+            <SettingsIcon className="mr-2 h-4 w-4" />
+            <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <LogOut className="mr-2 h-4 w-4" />
-            <span>Log out</span>
+            <span>Cerrar Sesión</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

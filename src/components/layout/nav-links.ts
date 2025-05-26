@@ -17,12 +17,12 @@ export interface NavLink {
 }
 
 export const navLinks: NavLink[] = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/contacts', label: 'Contacts', icon: Users },
-  { href: '/purchases', label: 'Purchases', icon: ShoppingCart },
-  { href: '/sales', label: 'Sales', icon: Store },
-  { href: '/expenses', label: 'Expenses', icon: CreditCard },
-  { href: '/accounting', label: 'Accounting', icon: Calculator },
-  { href: '/inventory', label: 'Inventory', icon: Boxes },
-  { href: '/admin', label: 'Admin', icon: Settings },
+  { href: '/', label: 'Panel Principal', icon: LayoutDashboard },
+  { href: '/contacts', label: 'Contactos', icon: Users },
+  { href: '/purchases', label: 'Compras', icon: ShoppingCart },
+  { href: '/sales', label: 'Ventas', icon: Store },
+  { href: '/expenses', label: 'Gastos', icon: CreditCard },
+  { href: '/accounting', label: 'Contabilidad', icon: Calculator },
+  { href: '/inventory', label: 'Inventario', icon: Boxes },
+  { href: '/admin', label: 'Administración', icon: Settings },
 ];

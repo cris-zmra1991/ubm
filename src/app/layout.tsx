@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Unified Business Manager',
-  description: 'Manage contacts, purchases, sales, expenses, accounting, inventory, and admin settings.',
+  title: 'Gestor Unificado de Negocios',
+  description: 'Gestiona contactos, compras, ventas, gastos, contabilidad, inventario y configuraciones de administrador.',
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AppShell>
           {children}
