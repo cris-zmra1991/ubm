@@ -39,15 +39,6 @@ const chartConfig = {
   expenses: { label: "Gastos", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig
 
-const initialChartOfAccountsData: AccountFormInput[] = [
-  { id: "1", code: "1010", name: "Efectivo", type: "Activo", balance: 25000.75 },
-  { id: "2", code: "1200", name: "Cuentas por Cobrar", type: "Activo", balance: 12500.00 },
-  { id: "3", code: "2010", name: "Cuentas por Pagar", type: "Pasivo", balance: 8750.50 },
-];
-const initialJournalEntriesData: JournalEntryFormInput[] = [
- { id: "1", date: "2024-07-01", entryNumber: "JE-001", description: "Venta en efectivo", debitAccountCode: "1010", creditAccountCode: "4010", amount: 500.00 },
-];
-
 // --- Account Form Component ---
 function AccountForm({ account, onFormSubmit, closeDialog }: { account?: AccountFormInput, onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<AccountFormInput>({
@@ -158,8 +149,8 @@ function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entr
 
 
 export default function AccountingPage() {
-  const [chartOfAccounts, setChartOfAccounts] = useState<AccountFormInput[]>(initialChartOfAccountsData);
-  const [journalEntries, setJournalEntries] = useState<JournalEntryFormInput[]>(initialJournalEntriesData);
+  const [chartOfAccounts, setChartOfAccounts] = useState<AccountFormInput[]>([]);
+  const [journalEntries, setJournalEntries] = useState<JournalEntryFormInput[]>([]);
   const { toast } = useToast();
 
   const [isAccountDialogOpen, setIsAccountDialogOpen] = useState(false);
@@ -170,14 +161,16 @@ export default function AccountingPage() {
   const [editingJournalEntry, setEditingJournalEntry] = useState<JournalEntryFormInput | undefined>(undefined);
   const [deletingJournalEntryId, setDeletingJournalEntryId] = useState<string | null>(null);
 
-  // TODO: Cargar datos del servidor
-  // useEffect(() => {
-  //   async function loadData() {
-  //     setChartOfAccounts(await getAccounts());
-  //     setJournalEntries(await getJournalEntries());
-  //   }
-  //   loadData();
-  // }, []);
+  const refreshAccountingData = async () => {
+    const accountsData = await getAccounts();
+    setChartOfAccounts(accountsData);
+    const journalEntriesData = await getJournalEntries();
+    setJournalEntries(journalEntriesData);
+  };
+
+  useEffect(() => {
+    refreshAccountingData();
+  }, []);
 
   const handleAccountSubmit = async (data: AccountFormInput) => {
     const response = editingAccount 
@@ -185,19 +178,22 @@ export default function AccountingPage() {
       : await addAccount(data);
     if (response.success && response.data) {
       toast({ title: "Éxito", description: response.message });
-      // Actualizar UI o confiar en revalidatePath
+      refreshAccountingData();
       setIsAccountDialogOpen(false);
       setEditingAccount(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message });
+      toast({ variant: "destructive", title: "Error", description: response.message, errors: response.errors });
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccountConfirm = async () => {
     if (!deletingAccountId) return;
     const response = await deleteAccount(deletingAccountId);
-     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
-    setDeletingAccountId(null);
+    toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
+    if(response.success) {
+      refreshAccountingData();
+    }
+    setDeletingAccountId(null); // Close dialog
   };
   
   const handleJournalEntrySubmit = async (data: JournalEntryFormInput) => {
@@ -206,18 +202,22 @@ export default function AccountingPage() {
       : await addJournalEntry(data);
     if (response.success && response.data) {
       toast({ title: "Éxito", description: response.message });
+      refreshAccountingData(); // Also refresh accounts as balances might change
       setIsJournalEntryDialogOpen(false);
       setEditingJournalEntry(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message });
+      toast({ variant: "destructive", title: "Error", description: response.message, errors: response.errors });
     }
   };
 
-  const handleDeleteJournalEntry = async () => {
+  const handleDeleteJournalEntryConfirm = async () => {
     if (!deletingJournalEntryId) return;
     const response = await deleteJournalEntry(deletingJournalEntryId);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
-    setDeletingJournalEntryId(null);
+    if(response.success) {
+      refreshAccountingData(); // Also refresh accounts as balances might change
+    }
+    setDeletingJournalEntryId(null); // Close dialog
   };
 
   return (
@@ -245,7 +245,6 @@ export default function AccountingPage() {
             </TabsList>
 
             <TabsContent value="dashboard" className="mt-6 space-y-6">
-              {/* ... (Contenido del Dashboard se mantiene igual) ... */}
                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -327,15 +326,16 @@ export default function AccountingPage() {
                         <TableCell className="text-right">
                             <Button variant="ghost" size="sm" onClick={() => { setEditingAccount(acc); setIsAccountDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
                             <AlertDialog>
-                                <AlertDialogTrigger asChild><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
+                                <AlertDialogTrigger asChild><Button onClick={() => setDeletingAccountId(acc.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
                                 <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará la cuenta {acc.name}.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {setDeletingAccountId(acc.id!); handleDeleteAccount();}} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
+                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará la cuenta {chartOfAccounts.find(a => a.id === deletingAccountId)?.name}.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
                         </TableCell>
                       </TableRow>
                     ))}
+                    {chartOfAccounts.length === 0 && <TableRow><TableCell colSpan={5} className="text-center">No hay cuentas en el plan.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
@@ -371,22 +371,22 @@ export default function AccountingPage() {
                         <TableCell className="text-right">
                             <Button variant="ghost" size="sm" onClick={() => { setEditingJournalEntry(entry); setIsJournalEntryDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
                              <AlertDialog>
-                                <AlertDialogTrigger asChild><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
+                                <AlertDialogTrigger asChild><Button onClick={() => setDeletingJournalEntryId(entry.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
                                 <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará el asiento {entry.entryNumber}.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingJournalEntryId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {setDeletingJournalEntryId(entry.id!); handleDeleteJournalEntry();}} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
+                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará el asiento {journalEntries.find(je => je.id === deletingJournalEntryId)?.entryNumber}.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingJournalEntryId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteJournalEntryConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
                         </TableCell>
                       </TableRow>
                     ))}
+                    {journalEntries.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No hay asientos contables.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
             </TabsContent>
 
             <TabsContent value="reports" className="mt-6 space-y-4">
-              {/* ... (Contenido de Informes se mantiene igual) ... */}
                <h3 className="text-xl font-semibold">Informes Financieros</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
@@ -408,7 +408,6 @@ export default function AccountingPage() {
             </TabsContent>
             
             <TabsContent value="reconciliation" className="mt-6">
-              {/* ... (Contenido de Conciliación se mantiene igual) ... */}
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Conciliación Bancaria</h3>
                  <Button><Landmark className="mr-2 h-4 w-4"/> Iniciar Nueva Conciliación</Button>

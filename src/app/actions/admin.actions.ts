@@ -5,59 +5,17 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+// TODO: Importar librería para hashear contraseñas, ej: bcrypt
+// import bcrypt from 'bcryptjs';
 
-// TODO: SQL - CREATE TABLE para Información de la Empresa (company_info)
-// Esta tabla usualmente tendrá una sola fila.
-// CREATE TABLE company_info (
-//   id INT PRIMARY KEY DEFAULT 1, -- Solo una fila
-//   companyName VARCHAR(255) NOT NULL,
-//   companyEmail VARCHAR(255) NOT NULL,
-//   companyAddress TEXT NOT NULL,
-//   currency ENUM('EUR', 'USD', 'GBP') NOT NULL,
-//   timezone VARCHAR(100) NOT NULL,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   CONSTRAINT single_row CHECK (id = 1) -- Asegura una sola fila si tu MySQL lo soporta
-// );
-// -- Inserta una fila inicial si la tabla está vacía:
-// INSERT INTO company_info (id, companyName, companyEmail, companyAddress, currency, timezone)
-// VALUES (1, 'Nombre de Empresa Inicial', 'email@inicial.com', 'Dirección Inicial', 'EUR', 'Europe/Paris')
-// ON DUPLICATE KEY UPDATE companyName=companyName; -- Para evitar error si ya existe
-
-// TODO: SQL - CREATE TABLE para Usuarios (users) - Ya definido en auth.actions.ts, asegurarse que coincida.
-// CREATE TABLE users (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   username VARCHAR(255) NOT NULL UNIQUE,
-//   email VARCHAR(255) NOT NULL UNIQUE,
-//   password_hash VARCHAR(255) NOT NULL, -- Almacenar hash, no la contraseña
-//   role ENUM('Administrador', 'Gerente', 'Usuario') NOT NULL DEFAULT 'Usuario',
-//   status ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
-//   lastLogin TIMESTAMP NULL,
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-// );
-
-// TODO: SQL - CREATE TABLE para Configuración de Seguridad (security_settings)
-// CREATE TABLE security_settings (
-//   id INT PRIMARY KEY DEFAULT 1,
-//   mfaEnabled BOOLEAN DEFAULT FALSE,
-//   passwordPolicy ENUM('simple', 'medium', 'strong') DEFAULT 'medium',
-//   sessionTimeout INT DEFAULT 30, -- en minutos
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   CONSTRAINT single_row_sec CHECK (id = 1)
-// );
-// INSERT INTO security_settings (id) VALUES (1) ON DUPLICATE KEY UPDATE id=id;
-
-// TODO: SQL - CREATE TABLE para Configuración de Notificaciones (notification_settings)
-// CREATE TABLE notification_settings (
-//   id INT PRIMARY KEY DEFAULT 1,
-//   emailNotificationsEnabled BOOLEAN DEFAULT TRUE,
-//   newSaleNotify BOOLEAN DEFAULT TRUE,
-//   lowStockNotify BOOLEAN DEFAULT TRUE,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   CONSTRAINT single_row_notif CHECK (id = 1)
-// );
-// INSERT INTO notification_settings (id) VALUES (1) ON DUPLICATE KEY UPDATE id=id;
-
+// --- Esquemas de SQL (Recordatorios) ---
+// CREATE TABLE company_info (...)
+// CREATE TABLE users (..., role_id INT, FOREIGN KEY (role_id) REFERENCES roles(id) ... )
+// CREATE TABLE security_settings (...)
+// CREATE TABLE notification_settings (...)
+// CREATE TABLE roles (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL UNIQUE, description TEXT);
+// CREATE TABLE permissions (id INT AUTO_INCREMENT PRIMARY KEY, action_name VARCHAR(255) NOT NULL UNIQUE, module VARCHAR(100) NOT NULL, description TEXT);
+// CREATE TABLE role_permissions (role_id INT, permission_id INT, PRIMARY KEY (role_id, permission_id), FOREIGN KEY...);
 
 export const CompanyInfoSchema = z.object({
   companyName: z.string().min(1, 'El nombre de la empresa es requerido.'),
@@ -72,9 +30,9 @@ export const UserSchema = z.object({
   id: z.string().optional(),
   username: z.string().min(3, 'El nombre de usuario debe tener al menos 3 caracteres.'),
   email: z.string().email('Correo electrónico inválido.'),
-  role: z.enum(["Administrador", "Gerente", "Usuario"]),
+  role_id: z.coerce.number({invalid_type_error: 'Debe seleccionar un rol.'}).positive({message: 'Debe seleccionar un rol.'}).optional(), // Asegúrate que el ID del rol sea positivo
   status: z.enum(["Activo", "Inactivo"]).default("Activo"),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres.').optional(),
+  password: z.string().optional(), // Requerido para add, opcional para update
 });
 export type UserFormInput = z.infer<typeof UserSchema>;
 
@@ -97,7 +55,7 @@ export interface AdminActionResponse<T> {
   success: boolean;
   message: string;
   errors?: any; 
-  data?: T; // Si es una operación de get, podría ser T. Si es add/update puede ser T & {id: string}
+  data?: T;
 }
 
 // --- Acciones para Configuración General ---
@@ -112,7 +70,6 @@ export async function updateCompanyInfo(
 
   const { companyName, companyEmail, companyAddress, currency, timezone } = validatedFields.data;
   try {
-    // TODO: SQL - Actualizar (o insertar si no existe) la información de la empresa en MySQL (tabla con una sola fila, id=1)
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO company_info (id, companyName, companyEmail, companyAddress, currency, timezone) 
        VALUES (1, ?, ?, ?, ?, ?) 
@@ -136,19 +93,17 @@ export async function updateCompanyInfo(
 export async function getCompanyInfo(): Promise<CompanyInfoFormInput | null> {
   if (!pool) { console.error('DB pool not available in getCompanyInfo'); return null; }
   try {
-    // TODO: SQL - Obtener información de la empresa de MySQL (fila con id=1)
     const [rows] = await pool.query<RowDataPacket[]>('SELECT companyName, companyEmail, companyAddress, currency, timezone FROM company_info WHERE id = 1');
     if (rows.length > 0) {
       return rows[0] as CompanyInfoFormInput;
     }
-    // Devuelve valores por defecto si no hay nada en la BD para evitar errores en el form
     return { 
-        companyName: "Mi Empresa", companyEmail: "email@example.com", companyAddress: "123 Calle Falsa", 
+        companyName: "Mi Empresa Ejemplo", companyEmail: "email@ejemplo.com", companyAddress: "123 Calle Falsa", 
         currency: "EUR", timezone: "Europe/Madrid" 
     };
   } catch (error) {
     console.error('Error al obtener información de empresa (MySQL):', error);
-    return null; // O un objeto con valores por defecto
+    return null;
   }
 }
 
@@ -162,22 +117,24 @@ export async function addUser(
   }
   if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
   
-  const { username, email, role, status, password } = validatedFields.data;
-  if (!password) { // Password es requerido para addUser
-    return { success: false, message: 'La contraseña es requerida para nuevos usuarios.', errors: { password: ['La contraseña es requerida.'] } };
+  const { username, email, role_id, status, password } = validatedFields.data;
+  if (!password || password.length < 6) { 
+    return { success: false, message: 'La contraseña es requerida y debe tener al menos 6 caracteres.', errors: { password: ['La contraseña es requerida y debe tener al menos 6 caracteres.'] } };
   }
   
   try {
     // TODO: SQL - Hashear contraseña antes de guardarla (ej. con bcrypt)
-    const password_hash = password; // REEMPLAZAR con el hash real
+    // const hashedPassword = await bcrypt.hash(password, 10);
+    const password_hash = password; // REEMPLAZAR con hashedPassword
+    
     const [result] = await pool.query<ResultSetHeader>(
-      'INSERT INTO users (username, email, role, status, password_hash) VALUES (?, ?, ?, ?, ?)',
-      [username, email, role, status, password_hash]
+      'INSERT INTO users (username, email, role_id, status, password_hash) VALUES (?, ?, ?, ?, ?)',
+      [username, email, role_id, status, password_hash]
     );
     if (result.affectedRows > 0) {
         const newUserId = result.insertId.toString();
         revalidatePath('/admin', 'layout');
-        const { password, ...userData } = validatedFields.data; // No devolver contraseña
+        const { password: _p, ...userData } = validatedFields.data; 
         return { success: true, message: 'Usuario añadido exitosamente.', data: { ...userData, id: newUserId } };
     }
     return { success: false, message: 'No se pudo añadir el usuario.' };
@@ -195,33 +152,39 @@ export async function updateUser(
   data: UserFormInput
 ): Promise<AdminActionResponse<UserFormInput & {id: string}>> {
   if (!data.id) return { success: false, message: 'ID de usuario requerido.'};
-  const updateSchema = data.password ? UserSchema : UserSchema.omit({ password: true });
-  const validatedFields = updateSchema.safeParse(data);
+  
+  // Si no se provee contraseña, no la validamos ni actualizamos
+  const schemaToUse = data.password && data.password.length > 0 ? UserSchema : UserSchema.omit({ password: true });
+  const validatedFields = schemaToUse.safeParse(data);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
   if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
 
-  const { id, username, email, role, status, password } = validatedFields.data;
+  const { id, username, email, role_id, status, password } = validatedFields.data;
   try {
     let query: string;
     let queryParams: any[];
 
-    if (password) {
+    if (password && password.length > 0) {
+      if (password.length < 6) {
+        return { success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.', errors: { password: ['La nueva contraseña debe tener al menos 6 caracteres.']}};
+      }
       // TODO: SQL - Hashear nueva contraseña
-      const new_password_hash = password; // REEMPLAZAR con el hash real
-      query = 'UPDATE users SET username = ?, email = ?, role = ?, status = ?, password_hash = ? WHERE id = ?';
-      queryParams = [username, email, role, status, new_password_hash, id];
+      // const new_hashedPassword = await bcrypt.hash(password, 10);
+      const new_password_hash = password; // REEMPLAZAR con new_hashedPassword
+      query = 'UPDATE users SET username = ?, email = ?, role_id = ?, status = ?, password_hash = ? WHERE id = ?';
+      queryParams = [username, email, role_id, status, new_password_hash, id];
     } else {
-      query = 'UPDATE users SET username = ?, email = ?, role = ?, status = ? WHERE id = ?';
-      queryParams = [username, email, role, status, id];
+      query = 'UPDATE users SET username = ?, email = ?, role_id = ?, status = ? WHERE id = ?';
+      queryParams = [username, email, role_id, status, id];
     }
     
     const [result] = await pool.query<ResultSetHeader>(query, queryParams);
     if (result.affectedRows > 0) {
         revalidatePath('/admin', 'layout');
-        const { password, ...userData } = validatedFields.data;
+        const { password: _p, ...userData } = validatedFields.data;
         return { success: true, message: 'Usuario actualizado.', data: { ...userData, id: id! } };
     }
     return { success: false, message: 'Usuario no encontrado o sin cambios.' };
@@ -238,7 +201,6 @@ export async function updateUser(
 export async function deleteUser(userId: string): Promise<AdminActionResponse<null>> {
   if (!pool) return { success: false, message: 'Error del servidor: DB no disponible.' };
   try {
-    // TODO: SQL - Eliminar usuario
     const [result] = await pool.query<ResultSetHeader>('DELETE FROM users WHERE id = ?', [userId]);
     if (result.affectedRows > 0) {
         revalidatePath('/admin', 'layout');
@@ -251,17 +213,34 @@ export async function deleteUser(userId: string): Promise<AdminActionResponse<nu
   }
 }
 
-export async function getUsers(): Promise<(UserFormInput & { lastLogin?: string })[]> {
+export async function getUsers(): Promise<(UserFormInput & { id: string; role_name?: string; lastLogin?: string })[]> {
   if (!pool) { console.error('DB pool no disponible en getUsers'); return []; }
   try {
-    // TODO: SQL - Obtener usuarios, excluyendo password_hash
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, username, email, role, status, DATE_FORMAT(lastLogin, "%Y-%m-%d %H:%i:%s") as lastLogin FROM users ORDER BY username ASC');
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT u.id, u.username, u.email, u.role_id, r.name as role_name, u.status, DATE_FORMAT(u.lastLogin, "%Y-%m-%d %H:%i:%s") as lastLogin 
+       FROM users u
+       LEFT JOIN roles r ON u.role_id = r.id
+       ORDER BY u.username ASC`
+    );
     return rows.map(row => ({
         ...row,
         id: row.id.toString(),
-    })) as (UserFormInput & { lastLogin?: string })[];
+        role_id: row.role_id, // role_id will be number or null
+        role_name: row.role_name, // role_name will be string or null
+    })) as (UserFormInput & { id: string; role_name?: string; lastLogin?: string })[];
   } catch (error) {
     console.error('Error al obtener usuarios (MySQL):', error);
+    return [];
+  }
+}
+
+export async function getRoles(): Promise<{ id: number; name: string }[]> {
+  if (!pool) { console.error('DB pool no disponible en getRoles'); return []; }
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name FROM roles ORDER BY name ASC');
+    return rows as { id: number; name: string }[];
+  } catch (error) {
+    console.error('Error al obtener roles (MySQL):', error);
     return [];
   }
 }
@@ -279,7 +258,6 @@ export async function updateSecuritySettings(
   
   const { mfaEnabled, passwordPolicy, sessionTimeout } = validatedFields.data;
   try {
-    // TODO: SQL - Actualizar (o insertar si no existe) config. seguridad
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO security_settings (id, mfaEnabled, passwordPolicy, sessionTimeout) VALUES (1, ?, ?, ?)
        ON DUPLICATE KEY UPDATE mfaEnabled = VALUES(mfaEnabled), passwordPolicy = VALUES(passwordPolicy), sessionTimeout = VALUES(sessionTimeout)`,
@@ -299,12 +277,11 @@ export async function updateSecuritySettings(
 export async function getSecuritySettings(): Promise<SecuritySettingsFormInput | null> {
   if (!pool) { console.error('DB pool no disponible en getSecuritySettings'); return null; }
   try {
-    // TODO: SQL - Obtener config. seguridad
     const [rows] = await pool.query<RowDataPacket[]>('SELECT mfaEnabled, passwordPolicy, sessionTimeout FROM security_settings WHERE id = 1');
     if (rows.length > 0) {
-      return { ...rows[0], mfaEnabled: Boolean(rows[0].mfaEnabled) } as SecuritySettingsFormInput;
+      return { ...rows[0], mfaEnabled: Boolean(rows[0].mfaEnabled), sessionTimeout: Number(rows[0].sessionTimeout) } as SecuritySettingsFormInput;
     }
-    return { mfaEnabled: false, passwordPolicy: "medium", sessionTimeout: 30 }; // Valores por defecto
+    return { mfaEnabled: false, passwordPolicy: "medium", sessionTimeout: 30 }; 
   } catch (error) {
     console.error('Error al obtener config. seguridad (MySQL):', error);
     return null;
@@ -323,7 +300,6 @@ export async function updateNotificationSettings(
 
   const { emailNotificationsEnabled, newSaleNotify, lowStockNotify } = validatedFields.data;
   try {
-    // TODO: SQL - Actualizar (o insertar si no existe) config. notificaciones
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO notification_settings (id, emailNotificationsEnabled, newSaleNotify, lowStockNotify) VALUES (1, ?, ?, ?)
        ON DUPLICATE KEY UPDATE emailNotificationsEnabled = VALUES(emailNotificationsEnabled), newSaleNotify = VALUES(newSaleNotify), lowStockNotify = VALUES(lowStockNotify)`,
@@ -343,7 +319,6 @@ export async function updateNotificationSettings(
 export async function getNotificationSettings(): Promise<NotificationSettingsFormInput | null> {
   if (!pool) { console.error('DB pool no disponible en getNotificationSettings'); return null; }
   try {
-    // TODO: SQL - Obtener config. notificaciones
     const [rows] = await pool.query<RowDataPacket[]>('SELECT emailNotificationsEnabled, newSaleNotify, lowStockNotify FROM notification_settings WHERE id = 1');
     if (rows.length > 0) {
       return { 
@@ -353,7 +328,7 @@ export async function getNotificationSettings(): Promise<NotificationSettingsFor
           lowStockNotify: Boolean(rows[0].lowStockNotify),
       } as NotificationSettingsFormInput;
     }
-    return { emailNotificationsEnabled: true, newSaleNotify: true, lowStockNotify: true }; // Valores por defecto
+    return { emailNotificationsEnabled: true, newSaleNotify: true, lowStockNotify: true }; 
   } catch (error) {
     console.error('Error al obtener config. notificaciones (MySQL):', error);
     return null;

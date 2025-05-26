@@ -18,21 +18,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ContactSchema, type ContactFormInput, addContact, updateContact, deleteContact } from "@/app/actions/contacts.actions";
+import { ContactSchema, type ContactFormInput, addContact, updateContact, deleteContact, getContacts } from "@/app/actions/contacts.actions";
 import { useToast } from "@/hooks/use-toast";
 
-// Mantendremos esta data como inicial o para cuando el servidor no responda
-// En un escenario real, esto vendría de un fetch inicial o Server Component props
-const initialContactsData: AppContact[] = [
-  { id: "1", name: "Alice Wonderland", email: "alice@example.com", phone: "555-1234", type: "Cliente", company: "Wonderland Inc.", avatarUrl: "https://placehold.co/40x40.png?text=AW", lastInteraction: "Hace 2 días" },
-  { id: "2", name: "Bob The Builder", email: "bob@example.com", phone: "555-5678", type: "Proveedor", company: "BuildIt Co.", avatarUrl: "https://placehold.co/40x40.png?text=BB", lastInteraction: "Hace 1 semana" },
-  { id: "3", name: "Charlie Brown", email: "charlie@example.com", phone: "555-8765", type: "Prospecto", avatarUrl: "https://placehold.co/40x40.png?text=CB", lastInteraction: "Hace 5 horas" },
-  { id: "4", name: "Diana Prince", email: "diana@example.com", phone: "555-4321", type: "Cliente", company: "Themyscira Corp.", avatarUrl: "https://placehold.co/40x40.png?text=DP", lastInteraction: "Ayer" },
-];
-
 interface AppContact extends ContactFormInput {
-  avatarUrl: string;
-  lastInteraction: string;
+  // avatarUrl and lastInteraction are for display only if not in DB schema
+  avatarUrl?: string; 
+  lastInteraction?: string; 
 }
 
 
@@ -43,7 +35,7 @@ function ContactForm({ contact, onFormSubmit, closeDialog }: { contact?: AppCont
       name: '',
       email: '',
       phone: '',
-      type: undefined, // Para que el placeholder del Select funcione
+      type: undefined, 
       company: '',
     },
   });
@@ -102,33 +94,35 @@ function ContactForm({ contact, onFormSubmit, closeDialog }: { contact?: AppCont
 
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState<AppContact[]>(initialContactsData); // Usar los datos hardcoded como iniciales
+  const [contacts, setContacts] = useState<AppContact[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<AppContact | undefined>(undefined);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // En un escenario real, aquí se haría un fetch a /api/contacts o se recibirían props de un Server Component
-  // useEffect(() => {
-  //   async function fetchContacts() {
-  //     // const serverContacts = await getContacts(); // Esto es un server action, no se llama así en cliente
-  //     // Aquí harías un fetch a un route handler o usarías datos de Server Component
-  //     // Por ahora, usamos los datos hardcodeados
-  //   }
-  //   fetchContacts();
-  // }, []);
+  useEffect(() => {
+    async function loadContacts() {
+      const serverContacts = await getContacts();
+      // Map server data to AppContact if needed, especially for avatarUrl/lastInteraction if not in DB
+      setContacts(serverContacts.map(c => ({...c, avatarUrl: `https://placehold.co/40x40.png?text=${c.name.substring(0,2).toUpperCase()}`, lastInteraction: "N/A" })));
+    }
+    loadContacts();
+  }, []);
+
+  const refreshContacts = async () => {
+    const serverContacts = await getContacts();
+    setContacts(serverContacts.map(c => ({...c, avatarUrl: `https://placehold.co/40x40.png?text=${c.name.substring(0,2).toUpperCase()}`, lastInteraction: "N/A" })));
+  };
 
   const handleAddSubmit = async (data: ContactFormInput) => {
     const response = await addContact(data);
     if (response.success && response.contact) {
       toast({ title: "Éxito", description: response.message });
-      // Aquí actualizaríamos el estado local para reflejar el cambio
-      // setContacts(prev => [...prev, { ...response.contact, avatarUrl: "https://placehold.co/40x40.png?text=N", lastInteraction: "Ahora" }]);
-      // Como estamos usando revalidatePath, la página debería refrescar los datos si fuera un Server Component.
-      // Por ahora, la UI no se refrescará automáticamente con el nuevo contacto sin un fetch/refresh.
+      refreshContacts();
       setIsAddDialogOpen(false);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el contacto." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el contacto.", errors: response.errors });
     }
   };
 
@@ -137,23 +131,24 @@ export default function ContactsPage() {
     const response = await updateContact({ ...data, id: editingContact.id });
     if (response.success && response.contact) {
       toast({ title: "Éxito", description: response.message });
-      // setContacts(prev => prev.map(c => c.id === response.contact?.id ? { ...c, ...response.contact } : c));
+      refreshContacts();
       setIsEditDialogOpen(false);
       setEditingContact(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el contacto." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el contacto.", errors: response.errors });
     }
   };
 
-  const handleDelete = async (contactId: string | undefined) => {
-    if (!contactId) return;
-    const response = await deleteContact(contactId);
+  const handleDeleteConfirm = async () => {
+    if (!deletingContactId) return;
+    const response = await deleteContact(deletingContactId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      // setContacts(prev => prev.filter(c => c.id !== contactId));
+      refreshContacts();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar el contacto." });
     }
+    setDeletingContactId(null); // Close the alert dialog
   };
 
   const openEditDialog = (contact: AppContact) => {
@@ -222,7 +217,7 @@ export default function ContactsPage() {
                 {contacts.map((contact) => (
                   <TableRow key={contact.id}>
                     <TableCell>
-                      <Image src={contact.avatarUrl} alt={contact.name} width={40} height={40} className="rounded-full" data-ai-hint="persona avatar"/>
+                      <Image src={contact.avatarUrl || `https://placehold.co/40x40.png?text=${contact.name.substring(0,1)}`} alt={contact.name} width={40} height={40} className="rounded-full" data-ai-hint="persona avatar"/>
                     </TableCell>
                     <TableCell className="font-medium">{contact.name}</TableCell>
                     <TableCell><Link href={`mailto:${contact.email}`} className="text-primary hover:underline flex items-center gap-1"><Mail className="h-4 w-4"/> {contact.email}</Link></TableCell>
@@ -242,7 +237,7 @@ export default function ContactsPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>{contact.company || "N/D"}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{contact.lastInteraction}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{contact.lastInteraction || "N/A"}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -261,7 +256,7 @@ export default function ContactsPage() {
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem 
-                                onSelect={(e) => e.preventDefault()} // Previene que el DropdownMenu se cierre
+                                onSelect={(e) => {e.preventDefault(); setDeletingContactId(contact.id! )}}
                                 className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                 <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                               </DropdownMenuItem>
@@ -270,12 +265,12 @@ export default function ContactsPage() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Esta acción no se puede deshacer. Esto eliminará permanentemente el contacto.
+                                  Esta acción no se puede deshacer. Esto eliminará permanentemente el contacto {contacts.find(c=>c.id === deletingContactId)?.name}.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDelete(contact.id)} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                <AlertDialogCancel onClick={() => setDeletingContactId(null)}>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>

@@ -5,17 +5,20 @@ import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import { pool } from '@/lib/db';
 import type { RowDataPacket } from 'mysql2';
+// TODO: Import a password hashing library like bcrypt
+// import bcrypt from 'bcryptjs';
 
-// TODO: SQL - CREATE TABLE para usuarios
+// TODO: SQL - CREATE TABLE para usuarios (si no existe o difiere de la de admin.actions.ts)
 // CREATE TABLE users (
 //   id INT AUTO_INCREMENT PRIMARY KEY,
 //   username VARCHAR(255) NOT NULL UNIQUE,
 //   password_hash VARCHAR(255) NOT NULL, -- Asegúrate de hashear las contraseñas
 //   email VARCHAR(255) UNIQUE,
-//   role VARCHAR(50) DEFAULT 'Usuario',
+//   role_id INT, -- FK to roles table
 //   status VARCHAR(50) DEFAULT 'Activo',
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+//   FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE SET NULL
 // );
 
 const LoginSchema = z.object({
@@ -54,28 +57,40 @@ export async function handleLogin(
 
   if (!pool) {
     console.error('Error: Connection pool not available in handleLogin.');
-    return { message: 'Error del servidor: No se pudo conectar a la base de datos.', success: false };
+    return { message: 'Error del servidor: No se pudo conectar a la base de datos.', success: false, errors: { general: ['Error de conexión con la base de datos.'] } };
   }
 
   try {
     console.log('Intentando autenticar para:', username);
-    // TODO: Implementar hashing y verificación de contraseñas seguras (ej. bcrypt)
-    // Por ahora, se compara texto plano (NO SEGURO PARA PRODUCCIÓN)
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM users WHERE username = ? AND password_hash = ?', // En una app real, password_hash sería el hash de 'password'
-      [username, password] // Deberías comparar el hash de 'password' con el 'password_hash' almacenado
+      'SELECT id, username, password_hash FROM users WHERE username = ? AND status = "Activo"',
+      [username]
     );
 
     if (rows.length > 0) {
       const user = rows[0];
-      console.log('Autenticación exitosa para el usuario:', user.username);
-      // TODO: Lógica de creación de sesión/cookie aquí
-      // Por ejemplo, usando next-auth o una librería similar, o implementando tu propia gestión de sesiones.
-      // Por ahora, redirigimos directamente.
-      redirect('/');
-      // El redirect lanza una excepción, por lo que el return de abajo no se alcanza si hay éxito.
+      // TODO: Implementar hashing y verificación de contraseñas seguras (ej. bcrypt)
+      // const passwordMatches = await bcrypt.compare(password, user.password_hash);
+      const passwordMatches = password === user.password_hash; // REEMPLAZAR ESTO con bcrypt.compare
+
+      if (passwordMatches) {
+        console.log('Autenticación exitosa para el usuario:', user.username);
+        // TODO: Lógica de creación de sesión/cookie aquí
+        // Por ejemplo, usando next-auth o una librería similar.
+        // Por ahora, redirigimos directamente.
+        redirect('/'); 
+        // El redirect lanza una excepción, por lo que el return de abajo no se alcanza si hay éxito.
+        // No es necesario retornar explícitamente desde aquí después de un redirect.
+      } else {
+        console.log('Contraseña incorrecta para:', username);
+        return {
+          message: 'Credenciales inválidas.',
+          errors: { general: ['Nombre de usuario o contraseña incorrectos.'] },
+          success: false,
+        };
+      }
     } else {
-      console.log('Autenticación fallida para:', username);
+      console.log('Usuario no encontrado o inactivo:', username);
       return {
         message: 'Credenciales inválidas.',
         errors: { general: ['Nombre de usuario o contraseña incorrectos.'] },
@@ -87,6 +102,7 @@ export async function handleLogin(
     return {
       message: 'Error del servidor durante el inicio de sesión.',
       success: false,
+      errors: { general: ['Ocurrió un error inesperado.'] }
     };
   }
 }

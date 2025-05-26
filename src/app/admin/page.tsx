@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Settings as SettingsIcon, PlusCircle, Users, Building, SlidersHorizontal, Edit, Trash2, ShieldCheck, KeyRound, Bell } from "lucide-react";
+import { Settings as SettingsIcon, PlusCircle, Users, Building, SlidersHorizontal, Edit, Trash2, ShieldCheck, KeyRound, Bell, UserCog } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -18,22 +18,24 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { 
   CompanyInfoSchema, type CompanyInfoFormInput, updateCompanyInfo, getCompanyInfo,
-  UserSchema, type UserFormInput, addUser, updateUser, deleteUser, getUsers,
+  UserSchema, type UserFormInput, addUser, updateUser, deleteUser, getUsers, getRoles as fetchRoles,
   SecuritySettingsSchema, type SecuritySettingsFormInput, updateSecuritySettings, getSecuritySettings,
   NotificationSettingsSchema, type NotificationSettingsFormInput, updateNotificationSettings, getNotificationSettings
 } from "@/app/actions/admin.actions";
 import { useToast } from "@/hooks/use-toast";
 
 
-interface AppUser extends UserFormInput { // Extiende UserFormInput para incluir lastLogin si es necesario para display
+interface AppUser extends Omit<UserFormInput, 'role_id'> { 
+  id: string;
+  role_id?: number;
+  role_name?: string;
   lastLogin?: string;
 }
 
-const initialUsersData: AppUser[] = [
-  { id: "1", username: "johndoe", email: "john.doe@example.com", role: "Administrador", status: "Activo", lastLogin: "2024-07-22 10:00 AM" },
-  { id: "2", username: "janesmith", email: "jane.smith@example.com", role: "Gerente", status: "Activo", lastLogin: "2024-07-21 03:00 PM" },
-  { id: "3", username: "bobbuilder", email: "bob.builder@example.com", role: "Usuario", status: "Inactivo", lastLogin: "2024-06-15 09:00 AM" },
-];
+interface Role {
+  id: number;
+  name: string;
+}
 
 
 function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: CompanyInfoFormInput, onFormSubmit: (data: CompanyInfoFormInput) => Promise<void> }) {
@@ -95,24 +97,26 @@ function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: Compa
   );
 }
 
-function UserForm({ user, onFormSubmit, closeDialog }: { user?: AppUser, onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
+function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, roles: Role[], onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
     const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<UserFormInput>({
-        resolver: zodResolver(UserSchema.omit(user ? { password: true} : {})), // No requerir pass en edit, sí en add
-        defaultValues: user ? { ...user, password: ''} : { username: '', email: '', role: 'Usuario', status: 'Activo', password: ''},
+        resolver: zodResolver(UserSchema.omit(user && !user.password ? { password: true} : {})), 
+        defaultValues: user ? { ...user, password: '', role_id: user.role_id } : { username: '', email: '', role_id: undefined, status: 'Activo', password: ''},
     });
     return (
         <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
             <div><Label htmlFor="username">Nombre de Usuario</Label><Input id="username" {...register("username")} />{errors.username && <p className="text-sm text-destructive mt-1">{errors.username.message}</p>}</div>
             <div><Label htmlFor="email">Correo Electrónico</Label><Input id="email" type="email" {...register("email")} />{errors.email && <p className="text-sm text-destructive mt-1">{errors.email.message}</p>}</div>
-            {!user && (<div><Label htmlFor="password">Contraseña</Label><Input id="password" type="password" {...register("password")} />{errors.password && <p className="text-sm text-destructive mt-1">{errors.password.message}</p>}</div>)}
-            {user && (<div><Label htmlFor="password">Nueva Contraseña (opcional)</Label><Input id="password" type="password" {...register("password")} placeholder="Dejar en blanco para no cambiar"/>{errors.password && <p className="text-sm text-destructive mt-1">{errors.password.message}</p>}</div>)}
+            <div><Label htmlFor="password">{user ? "Nueva Contraseña (opcional)" : "Contraseña"}</Label><Input id="password" type="password" {...register("password")} placeholder={user ? "Dejar en blanco para no cambiar" : ""}/>{errors.password && <p className="text-sm text-destructive mt-1">{errors.password.message}</p>}</div>
             <div>
-                <Label htmlFor="role">Rol</Label>
-                <Controller name="role" control={control} render={({ field }) => (
-                    <Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
-                        <SelectItem value="Administrador">Administrador</SelectItem><SelectItem value="Gerente">Gerente</SelectItem><SelectItem value="Usuario">Usuario</SelectItem>
-                    </SelectContent></Select>
-                )} />{errors.role && <p className="text-sm text-destructive mt-1">{errors.role.message}</p>}
+                <Label htmlFor="role_id">Rol</Label>
+                <Controller name="role_id" control={control} render={({ field }) => (
+                    <Select onValueChange={(value) => field.onChange(Number(value))} defaultValue={field.value?.toString()}>
+                        <SelectTrigger><SelectValue placeholder="Seleccionar rol..." /></SelectTrigger>
+                        <SelectContent>
+                            {roles.map(r => <SelectItem key={r.id} value={r.id.toString()}>{r.name}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                )} />{errors.role_id && <p className="text-sm text-destructive mt-1">{errors.role_id.message}</p>}
             </div>
              <div>
                 <Label htmlFor="status">Estado</Label>
@@ -128,11 +132,10 @@ function UserForm({ user, onFormSubmit, closeDialog }: { user?: AppUser, onFormS
 }
 
 function SecuritySettingsForm({ defaultValues, onFormSubmit }: { defaultValues: SecuritySettingsFormInput, onFormSubmit: (data: SecuritySettingsFormInput) => Promise<void> }) {
-  const { register, handleSubmit, control, formState: { errors, isSubmitting }, setValue, watch } = useForm<SecuritySettingsFormInput>({
+  const { register, handleSubmit, control, formState: { errors, isSubmitting }} = useForm<SecuritySettingsFormInput>({
     resolver: zodResolver(SecuritySettingsSchema),
     defaultValues,
   });
-  const mfaEnabled = watch("mfaEnabled");
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
       <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -188,7 +191,8 @@ function NotificationSettingsForm({ defaultValues, onFormSubmit }: { defaultValu
 
 export default function AdminPage() {
   const [companyInfo, setCompanyInfo] = useState<CompanyInfoFormInput | null>(null);
-  const [users, setUsers] = useState<AppUser[]>(initialUsersData);
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [securitySettings, setSecuritySettings] = useState<SecuritySettingsFormInput | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsFormInput | null>(null);
   
@@ -197,14 +201,23 @@ export default function AdminPage() {
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const refreshAdminData = async () => {
+      const [companyData, usersData, rolesData, securityData, notificationData] = await Promise.all([
+        getCompanyInfo(),
+        getUsers(),
+        fetchRoles(),
+        getSecuritySettings(),
+        getNotificationSettings()
+      ]);
+      if (companyData) setCompanyInfo(companyData);
+      setUsers(usersData as AppUser[]); // Cast as AppUser which includes role_name
+      setRoles(rolesData);
+      if (securityData) setSecuritySettings(securityData);
+      if (notificationData) setNotificationSettings(notificationData);
+  };
+
   useEffect(() => {
-    async function loadAdminData() {
-      setCompanyInfo(await getCompanyInfo());
-      // setUsers(await getUsers()); // getUsers devuelve UserFormInput, no AppUser. Adaptar o no usar lastLogin.
-      setSecuritySettings(await getSecuritySettings());
-      setNotificationSettings(await getNotificationSettings());
-    }
-    loadAdminData();
+    refreshAdminData();
   }, []);
   
   const handleCompanyInfoSubmit = async (data: CompanyInfoFormInput) => {
@@ -215,19 +228,23 @@ export default function AdminPage() {
 
   const handleUserSubmit = async (data: UserFormInput) => {
     const response = editingUser ? await updateUser({ ...data, id: editingUser.id }) : await addUser(data);
-    toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
+    toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive", errors: response.errors });
     if (response.success) {
-        // TODO: Refrescar lista de usuarios o actualizar estado local
+        refreshAdminData();
         setIsUserDialogOpen(false); setEditingUser(undefined);
     }
   };
-  const handleDeleteUser = async () => {
+
+  const handleDeleteUserConfirm = async () => {
     if(!deletingUserId) return;
     const response = await deleteUser(deletingUserId);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
-    // TODO: Refrescar lista
-    setDeletingUserId(null);
+    if (response.success) {
+      refreshAdminData();
+    }
+    setDeletingUserId(null); // Close dialog
   };
+
   const openUserDialog = (user?: AppUser) => { setEditingUser(user); setIsUserDialogOpen(true); };
   
   const handleSecuritySettingsSubmit = async (data: SecuritySettingsFormInput) => {
@@ -243,8 +260,8 @@ export default function AdminPage() {
   };
 
 
-  if (!companyInfo || !securitySettings || !notificationSettings) {
-    return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>; // O un spinner
+  if (!companyInfo || !securitySettings || !notificationSettings || roles.length === 0 && users.length > 0 /* Allow empty users if no roles yet */ ) {
+    return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>; 
   }
 
   return (
@@ -266,9 +283,10 @@ export default function AdminPage() {
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 mb-6">
               <TabsTrigger value="general"><Building className="mr-2 h-4 w-4" />Configuración General</TabsTrigger>
               <TabsTrigger value="users"><Users className="mr-2 h-4 w-4" />Gestión de Usuarios</TabsTrigger>
+              <TabsTrigger value="roles"><UserCog className="mr-2 h-4 w-4" />Roles y Permisos</TabsTrigger>
               <TabsTrigger value="security"><ShieldCheck className="mr-2 h-4 w-4" />Seguridad</TabsTrigger>
               <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" />Notificaciones</TabsTrigger>
-              <TabsTrigger value="integrations"><SlidersHorizontal className="mr-2 h-4 w-4" />Integraciones</TabsTrigger>
+              {/* <TabsTrigger value="integrations"><SlidersHorizontal className="mr-2 h-4 w-4" />Integraciones</TabsTrigger> */}
             </TabsList>
 
             <TabsContent value="general" className="space-y-6">
@@ -291,20 +309,35 @@ export default function AdminPage() {
                       <TableRow key={user.id}>
                         <TableCell className="font-medium">{user.username}</TableCell>
                         <TableCell>{user.email}</TableCell>
-                        <TableCell>{user.role}</TableCell>
+                        <TableCell>{user.role_name || "Sin rol"}</TableCell>
                         <TableCell><Badge variant={user.status === "Activo" ? "default" : "outline"} className={user.status === "Activo" ? "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30" : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30"}>{user.status}</Badge></TableCell>
                         <TableCell>{user.lastLogin || "N/A"}</TableCell>
                         <TableCell className="text-right">
                            <Button variant="ghost" size="sm" onClick={() => openUserDialog(user)}><Edit className="mr-1 h-4 w-4" /> Editar</Button>
-                           <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
-                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Usuario?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará al usuario {user.username}.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={()=>setDeletingUserId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={()=>{setDeletingUserId(user.id!); handleDeleteUser();}} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                           <AlertDialog>
+                            <AlertDialogTrigger asChild><Button onClick={()=>setDeletingUserId(user.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
+                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Usuario?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará al usuario {users.find(u=>u.id === deletingUserId)?.username}.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={()=>setDeletingUserId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteUserConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                            </AlertDialog>
                         </TableCell>
                       </TableRow>
                     ))}
+                     {users.length === 0 && <TableRow><TableCell colSpan={6} className="text-center">No hay usuarios registrados.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
+            </TabsContent>
+
+            <TabsContent value="roles">
+                <Card>
+                    <CardHeader><CardTitle>Gestión de Roles y Permisos</CardTitle><CardDescription>Define roles y asigna permisos específicos para cada uno. (Funcionalidad en desarrollo)</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
+                            <UserCog className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">La gestión de roles y la asignación de permisos aparecerá aquí.</p>
+                             <Button variant="secondary" className="mt-4" disabled>Gestionar Roles</Button>
+                        </div>
+                    </CardContent>
+                </Card>
             </TabsContent>
             
             <TabsContent value="security" className="space-y-6">
@@ -321,7 +354,7 @@ export default function AdminPage() {
                 </Card>
             </TabsContent>
 
-            <TabsContent value="integrations">
+            {/* <TabsContent value="integrations">
                 <Card>
                     <CardHeader><CardTitle>Integraciones y API</CardTitle><CardDescription>Conéctate con otros servicios y gestiona claves API.</CardDescription></CardHeader>
                     <CardContent className="space-y-4">
@@ -332,7 +365,7 @@ export default function AdminPage() {
                         </div>
                     </CardContent>
                 </Card>
-            </TabsContent>
+            </TabsContent> */}
           </Tabs>
         </CardContent>
       </Card>
@@ -341,7 +374,7 @@ export default function AdminPage() {
       <Dialog open={isUserDialogOpen} onOpenChange={setIsUserDialogOpen}>
         <DialogContent className="sm:max-w-md">
             <DialogHeader><DialogTitle>{editingUser ? "Editar Usuario" : "Añadir Nuevo Usuario"}</DialogTitle><DialogDescription>{editingUser ? "Actualiza los detalles del usuario." : "Completa los detalles del nuevo usuario."}</DialogDescription></DialogHeader>
-            <UserForm user={editingUser} onFormSubmit={handleUserSubmit} closeDialog={() => { setIsUserDialogOpen(false); setEditingUser(undefined);}} />
+            <UserForm user={editingUser} roles={roles} onFormSubmit={handleUserSubmit} closeDialog={() => { setIsUserDialogOpen(false); setEditingUser(undefined);}} />
         </DialogContent>
       </Dialog>
     </div>

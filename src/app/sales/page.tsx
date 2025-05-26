@@ -20,15 +20,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { SaleOrderSchema, type SaleOrderFormInput, addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders } from "@/app/actions/sales.actions";
 import { useToast } from "@/hooks/use-toast";
 
-const initialSalesOrdersData: SaleOrderFormInput[] = [
-  { id: "1", invoiceNumber: "INV-2024-001", customer: "Cliente X", date: "2024-07-10", totalAmount: 750.50, status: "Pagada" },
-  { id: "2", invoiceNumber: "INV-2024-002", customer: "Cliente Y", date: "2024-07-12", totalAmount: 1200.00, status: "Entregada" },
-  { id: "3", invoiceNumber: "INV-2024-003", customer: "Patrón Z", date: "2024-07-15", totalAmount: 350.25, status: "Enviada" },
-  { id: "4", invoiceNumber: "INV-2024-004", customer: "Comprador A", date: "2024-07-18", totalAmount: 1800.70, status: "Confirmada" },
-  { id: "5", invoiceNumber: "INV-2024-005", customer: "Comprador B", date: "2024-07-20", totalAmount: 95.00, status: "Borrador" },
-  { id: "6", invoiceNumber: "INV-2024-006", customer: "Cliente C", date: "2024-07-21", totalAmount: 420.00, status: "Cancelada" },
-];
-
 const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
   switch (status) {
     case "Borrador":
@@ -117,7 +108,7 @@ function SaleOrderForm({ saleOrder, onFormSubmit, closeDialog }: { saleOrder?: S
 
 
 export default function SalesPage() {
-  const [salesOrders, setSalesOrders] = useState<SaleOrderFormInput[]>(initialSalesOrdersData);
+  const [salesOrders, setSalesOrders] = useState<SaleOrderFormInput[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingSaleOrder, setEditingSaleOrder] = useState<SaleOrderFormInput | undefined>(undefined);
@@ -125,23 +116,23 @@ export default function SalesPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("all");
 
-  // TODO: Cargar datos del servidor
-  // useEffect(() => {
-  //   async function loadSalesOrders() {
-  //     const serverSOs = await getSaleOrders();
-  //     setSalesOrders(serverSOs);
-  //   }
-  //   loadSalesOrders();
-  // }, []);
+  const refreshSalesOrders = async () => {
+    const serverSOs = await getSaleOrders();
+    setSalesOrders(serverSOs);
+  };
+
+  useEffect(() => {
+    refreshSalesOrders();
+  }, []);
 
   const handleAddSubmit = async (data: SaleOrderFormInput) => {
     const response = await addSaleOrder(data);
     if (response.success && response.saleOrder) {
       toast({ title: "Éxito", description: response.message });
-      // setSalesOrders(prev => [...prev, response.saleOrder!]);
+      refreshSalesOrders();
       setIsAddDialogOpen(false);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir la orden de venta." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir la orden de venta.", errors: response.errors });
     }
   };
 
@@ -150,20 +141,20 @@ export default function SalesPage() {
     const response = await updateSaleOrder({ ...data, id: editingSaleOrder.id });
     if (response.success && response.saleOrder) {
       toast({ title: "Éxito", description: response.message });
-      // setSalesOrders(prev => prev.map(so => so.id === response.saleOrder?.id ? response.saleOrder : so));
+      refreshSalesOrders();
       setIsEditDialogOpen(false);
       setEditingSaleOrder(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar la orden de venta." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar la orden de venta.", errors: response.errors });
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingSaleOrderId) return;
     const response = await deleteSaleOrder(deletingSaleOrderId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      // setSalesOrders(prev => prev.filter(so => so.id !== deletingSaleOrderId));
+      refreshSalesOrders();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar la orden de venta." });
     }
@@ -181,7 +172,7 @@ export default function SalesPage() {
     const response = await updateSaleOrder({ ...soToUpdate, status: newStatus });
     if (response.success) {
       toast({ title: "Éxito", description: `Venta ${soToUpdate.invoiceNumber} actualizada a ${newStatus}.` });
-      // Actualizar UI o confiar en revalidatePath
+      refreshSalesOrders();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el estado." });
     }
@@ -234,12 +225,12 @@ export default function SalesPage() {
           <Tabs defaultValue="all" onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3 md:grid-cols-7 mb-4">
               <TabsTrigger value="all">Todas</TabsTrigger>
-              <TabsTrigger value="draft">Borrador</TabsTrigger>
-              <TabsTrigger value="confirmed">Confirmadas</TabsTrigger>
-              <TabsTrigger value="shipped">Enviadas</TabsTrigger>
-              <TabsTrigger value="delivered">Entregadas</TabsTrigger>
-              <TabsTrigger value="paid">Pagadas</TabsTrigger>
-              <TabsTrigger value="cancelled">Canceladas</TabsTrigger>
+              <TabsTrigger value="Borrador">Borrador</TabsTrigger>
+              <TabsTrigger value="Confirmada">Confirmadas</TabsTrigger>
+              <TabsTrigger value="Enviada">Enviadas</TabsTrigger>
+              <TabsTrigger value="Entregada">Entregadas</TabsTrigger>
+              <TabsTrigger value="Pagada">Pagadas</TabsTrigger>
+              <TabsTrigger value="Cancelada">Canceladas</TabsTrigger>
             </TabsList>
             
             <TabsContent value={activeTab}>
@@ -274,8 +265,8 @@ export default function SalesPage() {
                                 <DropdownMenuItem onClick={() => openEditDialog(sale)}>
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <FileText className="mr-2 h-4 w-4" /> Ver PDF
+                                <DropdownMenuItem> {/* TODO: Implement PDF generation */}
+                                  <FileText className="mr-2 h-4 w-4" /> Ver PDF 
                                 </DropdownMenuItem>
                                 {sale.status === "Borrador" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Confirmada")}><CheckCircle className="mr-2 h-4 w-4"/> Confirmar Venta</DropdownMenuItem>}
                                 {sale.status === "Confirmada" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Enviada")}><Store className="mr-2 h-4 w-4" /> Marcar como Enviada</DropdownMenuItem>}
@@ -285,7 +276,7 @@ export default function SalesPage() {
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                     <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
+                                     <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingSaleOrderId(sale.id!)}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                       <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                     </DropdownMenuItem>
                                   </AlertDialogTrigger>
@@ -293,12 +284,12 @@ export default function SalesPage() {
                                     <AlertDialogHeader>
                                       <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                        Esta acción no se puede deshacer. Se eliminará permanentemente la venta {sale.invoiceNumber}.
+                                        Esta acción no se puede deshacer. Se eliminará permanentemente la venta {salesOrders.find(s=>s.id === deletingSaleOrderId)?.invoiceNumber}.
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                       <AlertDialogCancel onClick={() => setDeletingSaleOrderId(null)}>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => { setDeletingSaleOrderId(sale.id!); handleDelete(); }} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                      <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>

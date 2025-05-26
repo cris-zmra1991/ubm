@@ -20,15 +20,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { PurchaseOrderSchema, type PurchaseOrderFormInput, addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders } from "@/app/actions/purchases.actions";
 import { useToast } from "@/hooks/use-toast";
 
-// Datos iniciales (se reemplazarán con datos del servidor si es posible)
-const initialPurchaseOrdersData: PurchaseOrderFormInput[] = [
-  { id: "1", poNumber: "PO-2024-001", vendor: "Proveedor Alpha", date: "2024-07-15", totalAmount: 1250.75, status: "Recibida" },
-  { id: "2", poNumber: "PO-2024-002", vendor: "Proveedor Beta", date: "2024-07-18", totalAmount: 875.00, status: "Enviada" },
-  { id: "3", poNumber: "PO-2024-003", vendor: "Vendedor Gamma", date: "2024-07-20", totalAmount: 2300.50, status: "Confirmada" },
-  { id: "4", poNumber: "PO-2024-004", vendor: "Proveedor Delta", date: "2024-07-22", totalAmount: 550.20, status: "Borrador" },
-  { id: "5", poNumber: "PO-2024-005", vendor: "Proveedor Epsilon", date: "2024-07-23", totalAmount: 150.00, status: "Cancelada" },
-];
-
 const getStatusBadge = (status: PurchaseOrderFormInput["status"]) => {
   switch (status) {
     case "Borrador":
@@ -52,7 +43,7 @@ function PurchaseOrderForm({ purchaseOrder, onFormSubmit, closeDialog }: { purch
     defaultValues: purchaseOrder || {
       poNumber: '',
       vendor: '',
-      date: new Date().toISOString().split('T')[0], // Fecha actual por defecto
+      date: new Date().toISOString().split('T')[0], 
       totalAmount: 0,
       status: 'Borrador',
     },
@@ -113,7 +104,7 @@ function PurchaseOrderForm({ purchaseOrder, onFormSubmit, closeDialog }: { purch
 }
 
 export default function PurchasesPage() {
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderFormInput[]>(initialPurchaseOrdersData);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderFormInput[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<PurchaseOrderFormInput | undefined>(undefined);
@@ -121,25 +112,23 @@ export default function PurchasesPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("all");
 
-  // TODO: En un escenario real, aquí se haría un fetch a /api/purchase-orders o se recibirían props de un Server Component
-  // useEffect(() => {
-  //   async function loadPurchaseOrders() {
-  //     const serverPOs = await getPurchaseOrders(); // Llamar a la Server Action
-  //     setPurchaseOrders(serverPOs);
-  //   }
-  //   loadPurchaseOrders();
-  // }, []);
-  // Para que la UI se actualice tras una acción, se debería re-fetchear o Next.js revalidaría la ruta.
+  const refreshPurchaseOrders = async () => {
+    const serverPOs = await getPurchaseOrders();
+    setPurchaseOrders(serverPOs);
+  };
+  
+  useEffect(() => {
+    refreshPurchaseOrders();
+  }, []);
 
   const handleAddSubmit = async (data: PurchaseOrderFormInput) => {
     const response = await addPurchaseOrder(data);
     if (response.success && response.purchaseOrder) {
       toast({ title: "Éxito", description: response.message });
-      // Actualización optimista o re-fetch. Por ahora, se depende de revalidatePath.
-      // setPurchaseOrders(prev => [...prev, response.purchaseOrder!]);
+      refreshPurchaseOrders();
       setIsAddDialogOpen(false);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir la orden de compra." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir la orden de compra.", errors: response.errors });
     }
   };
 
@@ -148,20 +137,20 @@ export default function PurchasesPage() {
     const response = await updatePurchaseOrder({ ...data, id: editingPurchaseOrder.id });
     if (response.success && response.purchaseOrder) {
       toast({ title: "Éxito", description: response.message });
-      // setPurchaseOrders(prev => prev.map(po => po.id === response.purchaseOrder?.id ? response.purchaseOrder : po));
+      refreshPurchaseOrders();
       setIsEditDialogOpen(false);
       setEditingPurchaseOrder(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar la orden de compra." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar la orden de compra.", errors: response.errors });
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingPurchaseOrderId) return;
     const response = await deletePurchaseOrder(deletingPurchaseOrderId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      // setPurchaseOrders(prev => prev.filter(po => po.id !== deletingPurchaseOrderId));
+      refreshPurchaseOrders();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar la orden de compra." });
     }
@@ -179,7 +168,7 @@ export default function PurchasesPage() {
     const response = await updatePurchaseOrder({ ...poToUpdate, status: newStatus });
     if (response.success) {
       toast({ title: "Éxito", description: `Orden ${poToUpdate.poNumber} actualizada a ${newStatus}.` });
-      // Actualizar UI o confiar en revalidatePath
+      refreshPurchaseOrders();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el estado." });
     }
@@ -231,11 +220,11 @@ export default function PurchasesPage() {
           <Tabs defaultValue="all" onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 mb-4">
               <TabsTrigger value="all">Todas</TabsTrigger>
-              <TabsTrigger value="draft">Borrador</TabsTrigger>
-              <TabsTrigger value="confirmed">Confirmadas</TabsTrigger>
-              <TabsTrigger value="shipped">Enviadas</TabsTrigger>
-              <TabsTrigger value="received">Recibidas</TabsTrigger>
-              <TabsTrigger value="cancelled">Canceladas</TabsTrigger>
+              <TabsTrigger value="Borrador">Borrador</TabsTrigger>
+              <TabsTrigger value="Confirmada">Confirmadas</TabsTrigger>
+              <TabsTrigger value="Enviada">Enviadas</TabsTrigger>
+              <TabsTrigger value="Recibida">Recibidas</TabsTrigger>
+              <TabsTrigger value="Cancelada">Canceladas</TabsTrigger>
             </TabsList>
             
             <TabsContent value={activeTab}>
@@ -270,7 +259,7 @@ export default function PurchasesPage() {
                                 <DropdownMenuItem onClick={() => openEditDialog(po)}>
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
+                                <DropdownMenuItem> {/* TODO: Implement PDF generation */}
                                   <FileText className="mr-2 h-4 w-4" /> Ver PDF
                                 </DropdownMenuItem>
                                 {po.status === "Borrador" && <DropdownMenuItem onClick={() => handleStatusUpdate(po.id!, "Confirmada")}><CheckCircle className="mr-2 h-4 w-4" /> Confirmar Orden</DropdownMenuItem>}
@@ -280,7 +269,7 @@ export default function PurchasesPage() {
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
+                                    <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingPurchaseOrderId(po.id! )}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                       <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                     </DropdownMenuItem>
                                   </AlertDialogTrigger>
@@ -288,12 +277,12 @@ export default function PurchasesPage() {
                                     <AlertDialogHeader>
                                       <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                        Esta acción no se puede deshacer. Se eliminará permanentemente la orden de compra {po.poNumber}.
+                                        Esta acción no se puede deshacer. Se eliminará permanentemente la orden de compra {purchaseOrders.find(p=>p.id === deletingPurchaseOrderId)?.poNumber}.
                                       </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                       <AlertDialogCancel onClick={() => setDeletingPurchaseOrderId(null)}>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => { setDeletingPurchaseOrderId(po.id!); handleDelete(); }} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                      <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>

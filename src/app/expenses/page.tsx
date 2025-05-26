@@ -20,14 +20,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ExpenseSchema, type ExpenseFormInput, addExpense, updateExpense, deleteExpense, getExpenses } from "@/app/actions/expenses.actions";
 import { useToast } from "@/hooks/use-toast";
 
-const initialExpensesData: ExpenseFormInput[] = [
-  { id: "1", date: "2024-07-01", category: "Suministros de Oficina", description: "Papel para impresora y bolígrafos", amount: 45.50, vendor: "Office Depot", status: "Pagado", receiptUrl: "#" },
-  { id: "2", date: "2024-07-05", category: "Viajes", description: "Vuelo a conferencia", amount: 350.00, status: "Aprobado", vendor: "Aerolínea Fantasía" },
-  { id: "3", date: "2024-07-10", category: "Suscripción de Software", description: "Adobe CC mensual", amount: 59.99, status: "Pagado", vendor: "Adobe Inc." },
-  { id: "4", date: "2024-07-15", category: "Marketing", description: "Campaña publicitaria en redes sociales", amount: 200.00, status: "Enviado", vendor: "Meta Ads" },
-  { id: "5", date: "2024-07-18", category: "Servicios Públicos", description: "Factura de electricidad", amount: 120.75, status: "Rechazado", vendor: "Compañía Eléctrica" },
-];
-
 const getStatusBadge = (status: ExpenseFormInput["status"]) => {
   switch (status) {
     case "Enviado":
@@ -121,30 +113,30 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
 }
 
 export default function ExpensesPage() {
-  const [expenses, setExpenses] = useState<ExpenseFormInput[]>(initialExpensesData);
+  const [expenses, setExpenses] = useState<ExpenseFormInput[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseFormInput | undefined>(undefined);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // TODO: Cargar datos del servidor
-  // useEffect(() => {
-  //   async function loadExpenses() {
-  //     const serverExpenses = await getExpenses();
-  //     setExpenses(serverExpenses);
-  //   }
-  //   loadExpenses();
-  // }, []);
+  const refreshExpenses = async () => {
+    const serverExpenses = await getExpenses();
+    setExpenses(serverExpenses);
+  };
+
+  useEffect(() => {
+    refreshExpenses();
+  }, []);
 
   const handleAddSubmit = async (data: ExpenseFormInput) => {
     const response = await addExpense(data);
     if (response.success && response.expense) {
       toast({ title: "Éxito", description: response.message });
-      // setExpenses(prev => [...prev, response.expense!]);
+      refreshExpenses();
       setIsAddDialogOpen(false);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el gasto." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el gasto.", errors: response.errors });
     }
   };
 
@@ -153,20 +145,20 @@ export default function ExpensesPage() {
     const response = await updateExpense({ ...data, id: editingExpense.id });
     if (response.success && response.expense) {
       toast({ title: "Éxito", description: response.message });
-      // setExpenses(prev => prev.map(ex => ex.id === response.expense?.id ? response.expense : ex));
+      refreshExpenses();
       setIsEditDialogOpen(false);
       setEditingExpense(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el gasto." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el gasto.", errors: response.errors });
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingExpenseId) return;
     const response = await deleteExpense(deletingExpenseId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      // setExpenses(prev => prev.filter(ex => ex.id !== deletingExpenseId));
+      refreshExpenses();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar el gasto." });
     }
@@ -184,14 +176,14 @@ export default function ExpensesPage() {
     const response = await updateExpense({ ...expenseToUpdate, status: newStatus });
     if (response.success) {
       toast({ title: "Éxito", description: `Gasto "${expenseToUpdate.description.substring(0,20)}..." actualizado a ${newStatus}.` });
-      // setExpenses(prev => prev.map(ex => ex.id === expenseId ? {...ex, status: newStatus} : ex));
+      refreshExpenses();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el estado." });
     }
   };
 
 
-  const totalExpensesThisMonth = expenses.reduce((sum, ex) => sum + ex.amount, 0);
+  const totalExpensesThisMonth = expenses.reduce((sum, ex) => sum + ex.amount, 0); // Simplified: should filter by month
   const pendingApprovalCount = expenses.filter(ex => ex.status === "Enviado").length;
   const pendingApprovalAmount = expenses.filter(ex => ex.status === "Enviado").reduce((sum, ex) => sum + ex.amount, 0);
   const rejectedCount = expenses.filter(ex => ex.status === "Rechazado").length;
@@ -332,7 +324,7 @@ export default function ExpensesPage() {
                           <DropdownMenuSeparator />
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
+                               <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingExpenseId(expense.id!)}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                 <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                               </DropdownMenuItem>
                             </AlertDialogTrigger>
@@ -340,12 +332,12 @@ export default function ExpensesPage() {
                               <AlertDialogHeader>
                                 <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Esta acción no se puede deshacer. Se eliminará permanentemente el gasto: "{expense.description}".
+                                  Esta acción no se puede deshacer. Se eliminará permanentemente el gasto: "{expenses.find(ex => ex.id === deletingExpenseId)?.description}".
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                 <AlertDialogCancel onClick={() => setDeletingExpenseId(null)}>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => {setDeletingExpenseId(expense.id!); handleDelete();}} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>

@@ -19,14 +19,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { InventoryItemSchema, AdjustStockSchema, type InventoryItemFormInput, type AdjustStockFormInput, addInventoryItem, updateInventoryItem, deleteInventoryItem, adjustStock, getInventoryItems } from "@/app/actions/inventory.actions";
 import { useToast } from "@/hooks/use-toast";
 
-const initialInventoryData: InventoryItemFormInput[] = [
-  { id: "1", name: "Ratón Inalámbrico Pro", sku: "WM-PRO-001", category: "Electrónica", currentStock: 45, reorderLevel: 20, unitPrice: 29.99, imageUrl: "https://placehold.co/60x60.png?text=Mouse", supplier: "TechSupplies Ltd." },
-  { id: "2", name: "Teclado Ergonómico", sku: "EK-BLK-005", category: "Electrónica", currentStock: 15, reorderLevel: 10, unitPrice: 79.50, imageUrl: "https://placehold.co/60x60.png?text=Keyboard", supplier: "OfficeComfort Inc." },
-  { id: "3", name: "Papel de Impresora A4 (500 Hojas)", sku: "PP-A4-500", category: "Suministros de Oficina", currentStock: 150, reorderLevel: 50, unitPrice: 5.99, supplier: "PaperMill Corp." },
-  { id: "4", name: "Granos de Café Orgánico (1kg)", sku: "CF-ORG-1KG", category: "Despensa", currentStock: 8, reorderLevel: 10, unitPrice: 18.75, imageUrl: "https://placehold.co/60x60.png?text=Coffee", supplier: "Beans R Us" },
-  { id: "5", name: "Spray Limpiador (Multiusos)", sku: "CS-AP-500ML", category: "Limpieza", currentStock: 30, reorderLevel: 15, unitPrice: 3.49, supplier: "CleanCo" },
-];
-
 
 function InventoryItemForm({ item, onFormSubmit, closeDialog }: { item?: InventoryItemFormInput, onFormSubmit: (data: InventoryItemFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<InventoryItemFormInput>({
@@ -132,7 +124,7 @@ function AdjustStockForm({ item, onFormSubmit, closeDialog }: { item: InventoryI
 
 
 export default function InventoryPage() {
-  const [inventory, setInventory] = useState<InventoryItemFormInput[]>(initialInventoryData);
+  const [inventory, setInventory] = useState<InventoryItemFormInput[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItemFormInput | undefined>(undefined);
@@ -141,23 +133,23 @@ export default function InventoryPage() {
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // TODO: Cargar datos del servidor
-  // useEffect(() => {
-  //   async function loadItems() {
-  //     const serverItems = await getInventoryItems();
-  //     setInventory(serverItems);
-  //   }
-  //   loadItems();
-  // }, []);
+  const refreshInventory = async () => {
+    const serverItems = await getInventoryItems();
+    setInventory(serverItems);
+  };
+
+  useEffect(() => {
+    refreshInventory();
+  }, []);
 
   const handleAddSubmit = async (data: InventoryItemFormInput) => {
     const response = await addInventoryItem(data);
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      // setInventory(prev => [...prev, response.inventoryItem!]);
+      refreshInventory();
       setIsAddDialogOpen(false);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el artículo." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el artículo.", errors: response.errors });
     }
   };
 
@@ -166,11 +158,11 @@ export default function InventoryPage() {
     const response = await updateInventoryItem({ ...data, id: editingItem.id });
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      // setInventory(prev => prev.map(item => item.id === response.inventoryItem?.id ? response.inventoryItem : item));
+      refreshInventory();
       setIsEditDialogOpen(false);
       setEditingItem(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el artículo." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el artículo.", errors: response.errors });
     }
   };
   
@@ -178,21 +170,21 @@ export default function InventoryPage() {
     const response = await adjustStock(data);
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      // setInventory(prev => prev.map(item => item.id === response.inventoryItem?.id ? response.inventoryItem : item));
+      refreshInventory();
       setIsAdjustStockDialogOpen(false);
       setItemToAdjustStock(undefined);
     } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo ajustar el stock." });
+      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo ajustar el stock.", errors: response.errors });
     }
   };
 
 
-  const handleDelete = async () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingItemId) return;
     const response = await deleteInventoryItem(deletingItemId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      // setInventory(prev => prev.filter(item => item.id !== deletingItemId));
+      refreshInventory();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar el artículo." });
     }
@@ -355,7 +347,7 @@ export default function InventoryPage() {
                           <DropdownMenuSeparator />
                            <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
+                                    <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingItemId(item.id!)}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                         <Trash2 className="mr-2 h-4 w-4" /> Eliminar Artículo
                                     </DropdownMenuItem>
                                 </AlertDialogTrigger>
@@ -363,12 +355,12 @@ export default function InventoryPage() {
                                     <AlertDialogHeader>
                                     <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        Esta acción no se puede deshacer. Se eliminará permanentemente el artículo "{item.name}".
+                                        Esta acción no se puede deshacer. Se eliminará permanentemente el artículo "{inventory.find(i => i.id === deletingItemId)?.name}".
                                     </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                     <AlertDialogCancel onClick={() => setDeletingItemId(null)}>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => {setDeletingItemId(item.id!); handleDelete();}} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                    <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -419,8 +411,6 @@ export default function InventoryPage() {
           {itemToAdjustStock && <AdjustStockForm item={itemToAdjustStock} onFormSubmit={handleAdjustStockSubmit} closeDialog={() => {setIsAdjustStockDialogOpen(false); setItemToAdjustStock(undefined);}} />}
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
-
