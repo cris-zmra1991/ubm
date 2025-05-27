@@ -1,8 +1,10 @@
+
 "use client";
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react'; // Import useEffect and useState
 import {
   SidebarProvider,
   Sidebar,
@@ -29,7 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, LogOut, UserCircle, Settings as SettingsIcon } from 'lucide-react'; // Renamed Settings to SettingsIcon
+import { ChevronDown, LogOut, UserCircle, Settings as SettingsIcon } from 'lucide-react';
+import { handleLogout } from '@/app/actions/auth.actions';
 
 interface AppShellProps {
   children: ReactNode;
@@ -109,6 +112,11 @@ function AppHeader() {
 function UserMenu() {
   const { open, state, isMobile } = useSidebar();
   const showInSidebar = !isMobile && (open || state === "expanded");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   if (showInSidebar) {
      return (
@@ -119,8 +127,10 @@ function UserMenu() {
               <AvatarImage src="https://placehold.co/40x40.png" alt="User Avatar" data-ai-hint="user avatar" />
               <AvatarFallback>JD</AvatarFallback>
             </Avatar>
-            <span className="truncate">John Doe</span>
-            <ChevronDown className="ml-auto h-4 w-4 shrink-0" />
+            <div className="flex items-center w-full">
+              <span className="truncate">John Doe</span>
+              {mounted && <ChevronDown className="ml-auto h-4 w-4 shrink-0" />}
+            </div>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
@@ -135,17 +145,20 @@ function UserMenu() {
             <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Cerrar Sesión</span>
-          </DropdownMenuItem>
+          <form action={handleLogout} className="w-full">
+            <Button type="submit" variant="ghost" className="w-full justify-start px-2 py-1.5 text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Cerrar Sesión</span>
+            </Button>
+          </form>
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
   
-  // Render UserMenu for AppHeader (mobile or collapsed sidebar)
   if (isMobile || (!open && state === "collapsed")) {
+    // This part of the UserMenu is for the header, which doesn't have the problematic ChevronDown in the trigger.
+    // So, no 'mounted' check is strictly needed here for ChevronDown, but it's good practice if other dynamic content was present.
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -169,14 +182,19 @@ function UserMenu() {
             <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Cerrar Sesión</span>
-          </DropdownMenuItem>
+           <form action={handleLogout} className="w-full">
+             <DropdownMenuItem asChild>
+                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-default">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Cerrar Sesión</span>
+                </Button>
+             </DropdownMenuItem>
+          </form>
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
 
-  return null; // Should not happen if logic is correct
+  return null;
 }
+
