@@ -1,6 +1,7 @@
+
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import '../globals.css'; // Adjust path to globals.css from within /login
+import '../globals.css'; // Ruta ajustada a globals.css desde /login
 import { Toaster } from "@/components/ui/toaster";
 
 const geistSans = Geist({
@@ -26,7 +27,7 @@ export default function LoginLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}>
-        {/* The AppShell is intentionally omitted here to have a clean login page */}
+        {/* AppShell se omite intencionalmente aquí para una página de login limpia */}
         {children}
         <Toaster />
       </body>
