@@ -6,20 +6,7 @@ import { redirect } from 'next/navigation';
 import { pool } from '@/lib/db';
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
-
-// SQL para la tabla 'users' (ya debería estar creada según scripts anteriores)
-// CREATE TABLE users (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   username VARCHAR(255) NOT NULL UNIQUE,
-//   email VARCHAR(255) NOT NULL UNIQUE,
-//   password_hash VARCHAR(255) NOT NULL,
-//   role_id INT,
-//   status ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
-//   lastLogin TIMESTAMP NULL,
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE SET NULL ON UPDATE CASCADE
-// );
+import { createSession, deleteSession } from '@/lib/session';
 
 const LoginSchema = z.object({
   username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
@@ -96,21 +83,20 @@ export async function handleLogin(
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
       
-      // TODO: Implementar lógica de creación de sesión/cookie aquí.
-      // Por ejemplo, usando next-auth o una librería similar.
-      // Por ahora, solo actualizamos lastLogin y redirigimos.
-
       try {
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
         console.error('Error al actualizar lastLogin:', updateError);
-        // Continuar con el login aunque falle la actualización de lastLogin
       }
       
-      // Redirigir al dashboard
+      const sessionPayload = {
+        userId: user.id.toString(),
+        username: user.username,
+        roleId: user.role_id 
+      };
+      await createSession(sessionPayload);
+      
       redirect('/'); 
-      // El redirect lanza una excepción, por lo que este return no se alcanzará si hay éxito.
-      // return { message: 'Autenticación exitosa', success: true };
     } else {
       console.log(`Contraseña incorrecta para: ${username}`);
       return {
@@ -127,4 +113,9 @@ export async function handleLogin(
       errors: { general: ['Ocurrió un error inesperado. Por favor, inténtelo más tarde.'] }
     };
   }
+}
+
+export async function handleLogout() {
+  await deleteSession();
+  redirect('/login');
 }
