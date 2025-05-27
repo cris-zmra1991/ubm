@@ -9,7 +9,6 @@ import bcrypt from 'bcryptjs';
 import { createSession, deleteSession } from '@/lib/session'; // Reverted to alias path
 import { LoginSchema } from '@/app/schemas/auth.schemas';
 
-
 export interface LoginFormState {
   message: string | null;
   errors?: {
@@ -83,7 +82,7 @@ export async function handleLogin(
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
-      
+
       try {
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
