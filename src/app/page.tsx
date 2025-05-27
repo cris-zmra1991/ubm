@@ -1,7 +1,12 @@
+
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Users, ShoppingCart, Store, CreditCard, Calculator, Boxes, Settings, DollarSign, UserPlus } from "lucide-react";
 import Link from "next/link";
+import { getSalesLastMonthValue } from "@/app/actions/sales.actions";
+import { getPurchasesLastMonthValue } from "@/app/actions/purchases.actions";
+import { getExpensesLastMonthValue } from "@/app/actions/expenses.actions";
+import { getNewClientsThisMonthCount } from "@/app/actions/contacts.actions";
 
 interface QuickAccessItem {
   title: string;
@@ -30,15 +35,21 @@ interface MetricItem {
   iconTextColorClass: string;
 }
 
-const metricItems: MetricItem[] = [
-  { title: "Ventas del Último Mes", value: "€12,345", icon: DollarSign, change: "+10.2%", changeType: 'positive', iconBgColorClass: "bg-green-100 dark:bg-green-800", iconTextColorClass: "text-green-600 dark:text-green-300" },
-  { title: "Compras del Último Mes", value: "€5,678", icon: ShoppingCart, change: "+3.1%", changeType: 'positive', iconBgColorClass: "bg-blue-100 dark:bg-blue-800", iconTextColorClass: "text-blue-600 dark:text-blue-300" },
-  { title: "Gastos del Último Mes", value: "€1,234", icon: CreditCard, change: "-2.5%", changeType: 'negative', iconBgColorClass: "bg-red-100 dark:bg-red-800", iconTextColorClass: "text-red-600 dark:text-red-300" },
-  { title: "Clientes Nuevos", value: "15", icon: UserPlus, change: "+8 este mes", changeType: 'positive', iconBgColorClass: "bg-purple-100 dark:bg-purple-800", iconTextColorClass: "text-purple-600 dark:text-purple-300" },
-];
+
+export default async function DashboardPage() {
+  const salesLastMonth = await getSalesLastMonthValue();
+  const purchasesLastMonth = await getPurchasesLastMonthValue();
+  const expensesLastMonth = await getExpensesLastMonthValue();
+  const newClientsThisMonth = await getNewClientsThisMonthCount();
+
+  const metricItems: MetricItem[] = [
+    { title: "Ventas del Último Mes", value: `€${salesLastMonth.toFixed(2)}`, icon: DollarSign, iconBgColorClass: "bg-green-100 dark:bg-green-800", iconTextColorClass: "text-green-600 dark:text-green-300" },
+    { title: "Compras del Último Mes", value: `€${purchasesLastMonth.toFixed(2)}`, icon: ShoppingCart, iconBgColorClass: "bg-blue-100 dark:bg-blue-800", iconTextColorClass: "text-blue-600 dark:text-blue-300" },
+    { title: "Gastos del Último Mes", value: `€${expensesLastMonth.toFixed(2)}`, icon: CreditCard, iconBgColorClass: "bg-red-100 dark:bg-red-800", iconTextColorClass: "text-red-600 dark:text-red-300" },
+    { title: "Clientes Nuevos (Últ. Mes)", value: `${newClientsThisMonth}`, icon: UserPlus, iconBgColorClass: "bg-purple-100 dark:bg-purple-800", iconTextColorClass: "text-purple-600 dark:text-purple-300" },
+  ];
 
 
-export default function DashboardPage() {
   return (
     <div className="space-y-8">
       <Card className="shadow-lg border-border">

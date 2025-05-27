@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// TODO: SQL - CREATE TABLE para órdenes de venta/facturas
+// SQL - CREATE TABLE para órdenes de venta/facturas
 // CREATE TABLE sale_orders (
 //   id INT AUTO_INCREMENT PRIMARY KEY,
 //   invoiceNumber VARCHAR(255) NOT NULL UNIQUE,
@@ -16,7 +16,6 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   status ENUM('Borrador', 'Confirmada', 'Enviada', 'Entregada', 'Pagada', 'Cancelada') NOT NULL,
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//   -- Podrías añadir una tabla `sale_order_items` para detallar los productos/servicios vendidos
 // );
 
 export const SaleOrderSchema = z.object({
@@ -67,7 +66,7 @@ export async function addSaleOrder(
   const { invoiceNumber, customer, date, totalAmount, status } = validatedFields.data;
 
   try {
-    // TODO: SQL - Insertar orden de venta
+    // SQL - Insertar orden de venta
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO sale_orders (invoiceNumber, customer, date, totalAmount, status) VALUES (?, ?, ?, ?, ?)',
       [invoiceNumber, customer, date, totalAmount, status]
@@ -121,7 +120,7 @@ export async function updateSaleOrder(
   const { id, invoiceNumber, customer, date, totalAmount, status } = validatedFields.data;
 
   try {
-    // TODO: SQL - Actualizar orden de venta
+    // SQL - Actualizar orden de venta
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE sale_orders SET invoiceNumber = ?, customer = ?, date = ?, totalAmount = ?, status = ? WHERE id = ?',
       [invoiceNumber, customer, date, totalAmount, status, id]
@@ -163,7 +162,7 @@ export async function deleteSaleOrder(
   }
 
   try {
-    // TODO: SQL - Eliminar orden de venta
+    // SQL - Eliminar orden de venta
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM sale_orders WHERE id = ?',
       [soId]
@@ -194,7 +193,7 @@ export async function getSaleOrders(): Promise<SaleOrderFormInput[]> {
     return [];
   }
   try {
-    // TODO: SQL - Obtener órdenes de venta
+    // SQL - Obtener órdenes de venta
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, invoiceNumber, customer, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM sale_orders ORDER BY date DESC'
     );
@@ -206,5 +205,25 @@ export async function getSaleOrders(): Promise<SaleOrderFormInput[]> {
   } catch (error) {
     console.error('Error al obtener Órdenes de Venta (MySQL):', error);
     return [];
+  }
+}
+
+export async function getSalesLastMonthValue(): Promise<number> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getSalesLastMonthValue.');
+    return 0;
+  }
+  try {
+    // SQL - Obtener suma de ventas del último mes (ej. últimos 30 días)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT SUM(totalAmount) as total FROM sale_orders WHERE status = 'Pagada' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
+    );
+    if (rows.length > 0 && rows[0].total) {
+      return parseFloat(rows[0].total);
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error al obtener valor de ventas del último mes (MySQL):', error);
+    return 0;
   }
 }

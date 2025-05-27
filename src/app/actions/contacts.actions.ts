@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// TODO: SQL - CREATE TABLE para contactos
+// SQL - CREATE TABLE para contactos
 // CREATE TABLE contacts (
 //   id INT AUTO_INCREMENT PRIMARY KEY,
 //   name VARCHAR(255) NOT NULL,
@@ -16,13 +16,10 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   company VARCHAR(255),
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//   -- avatarUrl y lastInteraction se pueden añadir si es necesario,
-//   -- avatarUrl podría ser un TEXT o VARCHAR(2048)
-//   -- lastInteraction podría ser un TIMESTAMP nullable
 // );
 
 export const ContactSchema = z.object({
-  id: z.string().optional(), // MySQL auto-incrementará, pero lo necesitamos para update/delete
+  id: z.string().optional(), 
   name: z.string().min(1, 'El nombre es requerido.'),
   email: z.string().email('Correo electrónico inválido.'),
   phone: z.string().min(1, 'El teléfono es requerido.'),
@@ -45,7 +42,7 @@ export interface ContactActionResponse {
     company?: string[];
     general?: string[];
   };
-  contact?: ContactFormInput & { id: string }; // Para devolver el contacto creado/actualizado
+  contact?: ContactFormInput & { id: string }; 
 }
 
 
@@ -70,7 +67,7 @@ export async function addContact(
   const { name, email, phone, type, company } = validatedFields.data;
 
   try {
-    // TODO: SQL - Insertar contacto en la base de datos MySQL
+    // SQL - Insertar contacto en la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO contacts (name, email, phone, type, company) VALUES (?, ?, ?, ?, ?)',
       [name, email, phone, type, company || null]
@@ -89,7 +86,6 @@ export async function addContact(
     }
   } catch (error: any) {
     console.error('Error al añadir contacto (MySQL):', error);
-    // Manejar error de email duplicado (MySQL error code 1062)
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El correo electrónico ya existe.', errors: { email: ['Este correo electrónico ya está registrado.'] } };
     }
@@ -125,7 +121,7 @@ export async function updateContact(
   const { id, name, email, phone, type, company } = validatedFields.data;
 
   try {
-    // TODO: SQL - Actualizar contacto en la base de datos MySQL
+    // SQL - Actualizar contacto en la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE contacts SET name = ?, email = ?, phone = ?, type = ?, company = ? WHERE id = ?',
       [name, email, phone, type, company || null, id]
@@ -167,7 +163,7 @@ export async function deleteContact(
   }
 
   try {
-    // TODO: SQL - Eliminar contacto de la base de datos MySQL
+    // SQL - Eliminar contacto de la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM contacts WHERE id = ?',
       [contactId]
@@ -195,18 +191,37 @@ export async function deleteContact(
 export async function getContacts(): Promise<ContactFormInput[]> {
   if (!pool) {
     console.error('Error: Connection pool not available in getContacts.');
-    return []; // Devolver array vacío o manejar error de forma apropiada
+    return []; 
   }
   try {
-    // TODO: SQL - Obtener contactos de la base de datos MySQL
+    // SQL - Obtener contactos de la base de datos MySQL
     const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, email, phone, type, company FROM contacts ORDER BY name ASC');
-    // Convertir id a string para que coincida con ContactFormInput y el frontend
     return rows.map(row => ({
         ...row,
         id: row.id.toString(),
     })) as ContactFormInput[];
   } catch (error) {
     console.error('Error al obtener contactos (MySQL):', error);
-    return []; // Devolver array vacío en caso de error
+    return []; 
+  }
+}
+
+export async function getNewClientsThisMonthCount(): Promise<number> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getNewClientsThisMonthCount.');
+    return 0;
+  }
+  try {
+    // SQL - Obtener contador de nuevos clientes de este mes (ej. últimos 30 días)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT COUNT(id) as count FROM contacts WHERE type = 'Cliente' AND created_at >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
+    );
+    if (rows.length > 0 && rows[0].count) {
+      return parseInt(rows[0].count, 10);
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error al obtener contador de nuevos clientes (MySQL):', error);
+    return 0;
   }
 }
