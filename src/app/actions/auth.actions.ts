@@ -3,23 +3,10 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db';
+import { pool } from '@/lib/db'; // Using alias which seems to work for db
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
-
-// SQL para la tabla 'users' (ya debería estar creada según scripts anteriores)
-// CREATE TABLE users (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   username VARCHAR(255) NOT NULL UNIQUE,
-//   email VARCHAR(255) NOT NULL UNIQUE,
-//   password_hash VARCHAR(255) NOT NULL,
-//   role_id INT,
-//   status ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
-//   lastLogin TIMESTAMP NULL,
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//   FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE SET NULL ON UPDATE CASCADE
-// );
+import { createSession, deleteSession } from '@/lib/session'; // Reverted to alias path
 
 const LoginSchema = z.object({
   username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
@@ -57,10 +44,10 @@ export async function handleLogin(
 
   if (!pool) {
     console.error('Error: Pool de conexiones no disponible en handleLogin.');
-    return { 
-        message: 'Error del servidor: No se pudo conectar a la base de datos.', 
-        success: false, 
-        errors: { general: ['Error de conexión con la base de datos. Por favor, inténtelo más tarde.'] } 
+    return {
+        message: 'Error del servidor: No se pudo conectar a la base de datos.',
+        success: false,
+        errors: { general: ['Error de conexión con la base de datos. Por favor, inténtelo más tarde.'] }
     };
   }
 
@@ -91,26 +78,26 @@ export async function handleLogin(
       };
     }
 
-    const passwordMatches = bcrypt.compareSync(password, user.password_hash);
+    // Comparar la contraseña proporcionada con el hash almacenado
+    // TODO: Asegurarse que user.password_hash existe y no es null antes de comparar
+    const passwordMatches = user.password_hash ? bcrypt.compareSync(password, user.password_hash) : false;
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
-      
-      // TODO: Implementar lógica de creación de sesión/cookie aquí.
-      // Por ejemplo, usando next-auth o una librería similar.
-      // Por ahora, solo actualizamos lastLogin y redirigimos.
 
       try {
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
         console.error('Error al actualizar lastLogin:', updateError);
-        // Continuar con el login aunque falle la actualización de lastLogin
       }
       
-      // Redirigir al dashboard
-      redirect('/'); 
-      // El redirect lanza una excepción, por lo que este return no se alcanzará si hay éxito.
-      // return { message: 'Autenticación exitosa', success: true };
+      const sessionPayload = {
+        userId: user.id.toString(),
+        username: user.username,
+        roleId: user.role_id,
+      };
+      await createSession(sessionPayload);
+
     } else {
       console.log(`Contraseña incorrecta para: ${username}`);
       return {
@@ -127,4 +114,10 @@ export async function handleLogin(
       errors: { general: ['Ocurrió un error inesperado. Por favor, inténtelo más tarde.'] }
     };
   }
+  redirect('/'); // Redirigir al dashboard después de un login exitoso
+}
+
+export async function handleLogout() {
+  await deleteSession();
+  redirect('/login');
 }
