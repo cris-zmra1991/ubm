@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db'; // This alias seems to work, so we'll keep it for now. If it also fails, it might need similar treatment.
+import { pool } from '@/lib/db';
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
 import { createSession, deleteSession } from '../../lib/session'; // Changed to relative path
@@ -78,11 +78,8 @@ export async function handleLogin(
       };
     }
 
-    // TODO: Implementar password hashing (e.g., bcrypt)
-    // const passwordMatches = await bcrypt.compare(password, user.password_hash);
-    // Por ahora, comparamos en texto plano (NO SEGURO PARA PRODUCCIÓN)
-    const passwordMatches = await bcrypt.compare(password, user.password_hash);
-
+    // Comparar la contraseña proporcionada con el hash almacenado
+    const passwordMatches = bcrypt.compareSync(password, user.password_hash);
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
@@ -125,6 +122,8 @@ export async function handleLogin(
 }
 
 export async function handleLogout() {
-  await deleteSession(); // Eliminar la cookie de sesión
+  // TODO: Limpiar datos de la sesión (si usas un store de sesión del lado del servidor)
+  // Por ahora, solo eliminamos la cookie que es el enfoque principal con JWTs httpOnly
+  await deleteSession();
   redirect('/login');
 }
