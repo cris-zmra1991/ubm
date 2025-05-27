@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// TODO: SQL - CREATE TABLE para órdenes de compra
+// SQL - CREATE TABLE para órdenes de compra
 // CREATE TABLE purchase_orders (
 //   id INT AUTO_INCREMENT PRIMARY KEY,
 //   poNumber VARCHAR(255) NOT NULL UNIQUE,
@@ -16,8 +16,6 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   status ENUM('Borrador', 'Confirmada', 'Enviada', 'Recibida', 'Cancelada') NOT NULL,
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//   -- Podrías añadir una foreign key a una tabla de vendors si la tienes
-//   -- Podrías añadir una tabla `purchase_order_items` para detallar los productos
 // );
 
 export const PurchaseOrderSchema = z.object({
@@ -68,7 +66,7 @@ export async function addPurchaseOrder(
   const { poNumber, vendor, date, totalAmount, status } = validatedFields.data;
 
   try {
-    // TODO: SQL - Insertar orden de compra
+    // SQL - Insertar orden de compra
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO purchase_orders (poNumber, vendor, date, totalAmount, status) VALUES (?, ?, ?, ?, ?)',
       [poNumber, vendor, date, totalAmount, status]
@@ -87,7 +85,7 @@ export async function addPurchaseOrder(
     }
   } catch (error: any) {
     console.error('Error al añadir Orden de Compra (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) { // Manejar error de poNumber duplicado
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) { 
         return { success: false, message: 'Error: El número de OC ya existe.', errors: { poNumber: ['Este número de OC ya está registrado.'] } };
     }
     return {
@@ -122,7 +120,7 @@ export async function updatePurchaseOrder(
   const { id, poNumber, vendor, date, totalAmount, status } = validatedFields.data;
 
   try {
-    // TODO: SQL - Actualizar orden de compra
+    // SQL - Actualizar orden de compra
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE purchase_orders SET poNumber = ?, vendor = ?, date = ?, totalAmount = ?, status = ? WHERE id = ?',
       [poNumber, vendor, date, totalAmount, status, id]
@@ -164,7 +162,7 @@ export async function deletePurchaseOrder(
   }
 
   try {
-    // TODO: SQL - Eliminar orden de compra
+    // SQL - Eliminar orden de compra
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM purchase_orders WHERE id = ?',
       [poId]
@@ -195,17 +193,38 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderFormInput[]> {
     return [];
   }
   try {
-    // TODO: SQL - Obtener órdenes de compra
+    // SQL - Obtener órdenes de compra
     const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, poNumber, vendor, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM purchase_orders ORDER BY date DESC'
     );
     return rows.map(row => ({
         ...row,
         id: row.id.toString(),
-        totalAmount: parseFloat(row.totalAmount) // Asegurar que sea número
+        totalAmount: parseFloat(row.totalAmount) 
     })) as PurchaseOrderFormInput[];
   } catch (error) {
     console.error('Error al obtener Órdenes de Compra (MySQL):', error);
     return [];
+  }
+}
+
+export async function getPurchasesLastMonthValue(): Promise<number> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getPurchasesLastMonthValue.');
+    return 0;
+  }
+  try {
+    // SQL - Obtener suma de compras del último mes (ej. últimos 30 días)
+    // Asumimos que 'Recibida' es el estado final para contar una compra
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT SUM(totalAmount) as total FROM purchase_orders WHERE status = 'Recibida' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
+    );
+    if (rows.length > 0 && rows[0].total) {
+      return parseFloat(rows[0].total);
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error al obtener valor de compras del último mes (MySQL):', error);
+    return 0;
   }
 }

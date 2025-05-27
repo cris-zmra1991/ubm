@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
-// TODO: SQL - CREATE TABLE para gastos
+// SQL - CREATE TABLE para gastos
 // CREATE TABLE expenses (
 //   id INT AUTO_INCREMENT PRIMARY KEY,
 //   date DATE NOT NULL,
@@ -72,7 +72,7 @@ export async function addExpense(
   const { date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
 
   try {
-    // TODO: SQL - Insertar gasto
+    // SQL - Insertar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO expenses (date, category, description, amount, vendor, status, receiptUrl) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [date, category, description, amount, vendor || null, status, receiptUrl || null]
@@ -123,7 +123,7 @@ export async function updateExpense(
   const { id, date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
 
   try {
-    // TODO: SQL - Actualizar gasto
+    // SQL - Actualizar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE expenses SET date = ?, category = ?, description = ?, amount = ?, vendor = ?, status = ?, receiptUrl = ? WHERE id = ?',
       [date, category, description, amount, vendor || null, status, receiptUrl || null, id]
@@ -162,7 +162,7 @@ export async function deleteExpense(
   }
 
   try {
-    // TODO: SQL - Eliminar gasto
+    // SQL - Eliminar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM expenses WHERE id = ?',
       [expenseId]
@@ -193,7 +193,7 @@ export async function getExpenses(): Promise<ExpenseFormInput[]> {
     return [];
   }
   try {
-    // TODO: SQL - Obtener gastos
+    // SQL - Obtener gastos
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, category, description, amount, vendor, status, receiptUrl FROM expenses ORDER BY date DESC'
     );
@@ -205,5 +205,25 @@ export async function getExpenses(): Promise<ExpenseFormInput[]> {
   } catch (error) {
     console.error('Error al obtener Gastos (MySQL):', error);
     return [];
+  }
+}
+
+export async function getExpensesLastMonthValue(): Promise<number> {
+  if (!pool) {
+    console.error('Error: Connection pool not available in getExpensesLastMonthValue.');
+    return 0;
+  }
+  try {
+    // SQL - Obtener suma de gastos pagados del último mes (ej. últimos 30 días)
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT SUM(amount) as total FROM expenses WHERE status = 'Pagado' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
+    );
+    if (rows.length > 0 && rows[0].total) {
+      return parseFloat(rows[0].total);
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error al obtener valor de gastos del último mes (MySQL):', error);
+    return 0;
   }
 }
