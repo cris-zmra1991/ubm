@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { ExpenseSchema } from '@/app/schemas/expenses.schemas';
 
 // SQL - CREATE TABLE para gastos
 // CREATE TABLE expenses (
@@ -19,19 +20,6 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 // );
-
-export const ExpenseSchema = z.object({
-  id: z.string().optional(),
-  date: z.string().min(1, 'La fecha es requerida.'),
-  category: z.string().min(1, 'La categoría es requerida.'),
-  description: z.string().min(1, 'La descripción es requerida.'),
-  amount: z.coerce.number().positive('El monto debe ser positivo.'),
-  vendor: z.string().optional(),
-  status: z.enum(["Enviado", "Aprobado", "Rechazado", "Pagado"], {
-    errorMap: () => ({ message: 'Selecciona un estado válido.' }),
-  }),
-  receiptUrl: z.string().url({ message: "URL de recibo inválida." }).optional().or(z.literal('')),
-});
 
 export type ExpenseFormInput = z.infer<typeof ExpenseSchema>;
 

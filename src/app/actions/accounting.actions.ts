@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { AccountSchema, JournalEntrySchema } from '@/app/schemas/accounting.schemas';
 
 // TODO: SQL - CREATE TABLE para Plan de Cuentas (chart_of_accounts)
 // CREATE TABLE chart_of_accounts (
@@ -33,27 +34,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 // );
 // -- Considerar añadir un índice a `date` y `entryNumber`.
 
-
-export const AccountSchema = z.object({
-  id: z.string().optional(),
-  code: z.string().min(1, 'El código de cuenta es requerido.'),
-  name: z.string().min(1, 'El nombre de cuenta es requerido.'),
-  type: z.enum(["Activo", "Pasivo", "Patrimonio", "Ingreso", "Gasto"], {
-    errorMap: () => ({ message: 'Selecciona un tipo de cuenta válido.' }),
-  }),
-  balance: z.coerce.number().default(0),
-});
 export type AccountFormInput = z.infer<typeof AccountSchema>;
-
-export const JournalEntrySchema = z.object({
-  id: z.string().optional(),
-  date: z.string().min(1, 'La fecha es requerida.'), // Validar formato de fecha si es necesario
-  entryNumber: z.string().min(1, 'El número de asiento es requerido.'),
-  description: z.string().min(1, 'La descripción es requerida.'),
-  debitAccountCode: z.string().min(1, 'Se requiere el código de la cuenta de débito.'),
-  creditAccountCode: z.string().min(1, 'Se requiere el código de la cuenta de crédito.'),
-  amount: z.coerce.number().positive('El monto debe ser positivo.'),
-});
 export type JournalEntryFormInput = z.infer<typeof JournalEntrySchema>;
 
 export interface AccountingActionResponse<T> {

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { PurchaseOrderSchema } from '@/app/schemas/purchases.schemas';
 
 // SQL - CREATE TABLE para órdenes de compra
 // CREATE TABLE purchase_orders (
@@ -17,17 +18,6 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 // );
-
-export const PurchaseOrderSchema = z.object({
-  id: z.string().optional(),
-  poNumber: z.string().min(1, 'El número de OC es requerido.'),
-  vendor: z.string().min(1, 'El proveedor es requerido.'),
-  date: z.string().min(1, 'La fecha es requerida.'), 
-  totalAmount: z.coerce.number().positive('El monto total debe ser positivo.'),
-  status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada"], {
-    errorMap: () => ({ message: 'Selecciona un estado válido.' }),
-  }),
-});
 
 export type PurchaseOrderFormInput = z.infer<typeof PurchaseOrderSchema>;
 
