@@ -3,10 +3,10 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db';
+import { pool } from '@/lib/db'; // This alias seems to work, so we'll keep it for now. If it also fails, it might need similar treatment.
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
-import { createSession, deleteSession } from '@/lib/session';
+import { createSession, deleteSession } from '../../lib/session'; // Changed to relative path
 
 const LoginSchema = z.object({
   username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
@@ -44,10 +44,10 @@ export async function handleLogin(
 
   if (!pool) {
     console.error('Error: Pool de conexiones no disponible en handleLogin.');
-    return { 
-        message: 'Error del servidor: No se pudo conectar a la base de datos.', 
-        success: false, 
-        errors: { general: ['Error de conexión con la base de datos. Por favor, inténtelo más tarde.'] } 
+    return {
+        message: 'Error del servidor: No se pudo conectar a la base de datos.',
+        success: false,
+        errors: { general: ['Error de conexión con la base de datos. Por favor, inténtelo más tarde.'] }
     };
   }
 
@@ -78,25 +78,32 @@ export async function handleLogin(
       };
     }
 
-    const passwordMatches = bcrypt.compareSync(password, user.password_hash);
+    // TODO: Implementar password hashing (e.g., bcrypt)
+    // const passwordMatches = await bcrypt.compare(password, user.password_hash);
+    // Por ahora, comparamos en texto plano (NO SEGURO PARA PRODUCCIÓN)
+    const passwordMatches = await bcrypt.compare(password, user.password_hash);
+
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
-      
+
       try {
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
         console.error('Error al actualizar lastLogin:', updateError);
+        // No bloqueamos el login por esto, pero es bueno registrarlo
       }
       
       const sessionPayload = {
         userId: user.id.toString(),
         username: user.username,
-        roleId: user.role_id 
+        roleId: user.role_id, // Asegúrate que esto venga de la DB
+        // Puedes añadir más datos a la sesión si es necesario (ej. permisos resumidos)
       };
-      await createSession(sessionPayload);
-      
-      redirect('/'); 
+      await createSession(sessionPayload); // Crear la sesión y establecer la cookie
+
+      // Redirigir al dashboard después de un login exitoso
+      // Next.js recomienda usar redirect() fuera del bloque try/catch
     } else {
       console.log(`Contraseña incorrecta para: ${username}`);
       return {
@@ -113,9 +120,11 @@ export async function handleLogin(
       errors: { general: ['Ocurrió un error inesperado. Por favor, inténtelo más tarde.'] }
     };
   }
+  // La redirección debe estar fuera del try/catch
+  redirect('/');
 }
 
 export async function handleLogout() {
-  await deleteSession();
+  await deleteSession(); // Eliminar la cookie de sesión
   redirect('/login');
 }
