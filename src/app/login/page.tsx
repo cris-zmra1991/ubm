@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LogIn } from "lucide-react";
 import Link from "next/link";
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState, useEffect } from "react"; // Updated import
+import { useFormStatus } from "react-dom"; // useFormStatus remains in react-dom
 import { handleLogin, type LoginFormState } from "@/app/actions/auth.actions";
-import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 // El useRouter ya no es necesario aquí si la redirección se maneja completamente en el Server Action
 // import { useRouter } from "next/navigation";
@@ -38,7 +38,7 @@ function LoginButton() {
 
 
 export default function LoginPage() {
-  const [state, formAction] = useFormState(handleLogin, initialState);
+  const [state, formAction] = useActionState(handleLogin, initialState); // Updated usage
   const { toast } = useToast();
   // const router = useRouter(); // No es necesario si el redirect está en el Server Action
 
