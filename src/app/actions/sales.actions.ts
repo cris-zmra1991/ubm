@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { SaleOrderSchema } from '@/app/schemas/sales.schemas';
 
 // SQL - CREATE TABLE para órdenes de venta/facturas
 // CREATE TABLE sale_orders (
@@ -17,17 +18,6 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 // );
-
-export const SaleOrderSchema = z.object({
-  id: z.string().optional(),
-  invoiceNumber: z.string().min(1, 'El número de factura es requerido.'),
-  customer: z.string().min(1, 'El cliente es requerido.'),
-  date: z.string().min(1, 'La fecha es requerida.'),
-  totalAmount: z.coerce.number().positive('El monto total debe ser positivo.'),
-  status: z.enum(["Borrador", "Confirmada", "Enviada", "Entregada", "Pagada", "Cancelada"], {
-    errorMap: () => ({ message: 'Selecciona un estado válido.' }),
-  }),
-});
 
 export type SaleOrderFormInput = z.infer<typeof SaleOrderSchema>;
 

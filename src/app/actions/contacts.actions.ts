@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { ContactSchema } from '@/app/schemas/contacts.schemas';
 
 // SQL - CREATE TABLE para contactos
 // CREATE TABLE contacts (
@@ -16,18 +17,9 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 //   company VARCHAR(255),
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+//   -- avatarUrl TEXT,
+//   -- lastInteraction TIMESTAMP NULL
 // );
-
-export const ContactSchema = z.object({
-  id: z.string().optional(), 
-  name: z.string().min(1, 'El nombre es requerido.'),
-  email: z.string().email('Correo electrónico inválido.'),
-  phone: z.string().min(1, 'El teléfono es requerido.'),
-  type: z.enum(['Cliente', 'Proveedor', 'Prospecto'], {
-    errorMap: () => ({ message: 'Selecciona un tipo de contacto válido.' }),
-  }),
-  company: z.string().optional(),
-});
 
 export type ContactFormInput = z.infer<typeof ContactSchema>;
 

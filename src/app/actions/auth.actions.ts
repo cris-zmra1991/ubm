@@ -3,15 +3,11 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db'; // Using alias which seems to work for db
+import { pool } from '@/lib/db'; 
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
 import { createSession, deleteSession } from '@/lib/session'; // Reverted to alias path
-
-const LoginSchema = z.object({
-  username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
-  password: z.string().min(1, { message: 'La contraseña es requerida.' }),
-});
+import { LoginSchema } from '@/app/schemas/auth.schemas';
 
 export interface LoginFormState {
   message: string | null;
@@ -53,6 +49,7 @@ export async function handleLogin(
 
   try {
     console.log(`Intentando autenticar para el usuario: ${username}`);
+    // TODO: SQL - Actualizar la tabla 'users' para que coincida con la estructura de la aplicación (ej. role_id, status)
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, username, password_hash, status, role_id FROM users WHERE username = ?',
       [username]
@@ -78,9 +75,10 @@ export async function handleLogin(
       };
     }
 
-    // Comparar la contraseña proporcionada con el hash almacenado
-    // TODO: Asegurarse que user.password_hash existe y no es null antes de comparar
+    // TODO: SQL - Implementar bcrypt para comparar contraseñas hasheadas
+    // const passwordMatches = await bcrypt.compare(password, user.password_hash);
     const passwordMatches = user.password_hash ? bcrypt.compareSync(password, user.password_hash) : false;
+
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
@@ -94,7 +92,7 @@ export async function handleLogin(
       const sessionPayload = {
         userId: user.id.toString(),
         username: user.username,
-        roleId: user.role_id,
+        roleId: user.role_id, // Asegúrate que esto venga de la DB
       };
       await createSession(sessionPayload);
 
