@@ -3,10 +3,10 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db';
+import { pool } from '@/lib/db'; // Using alias which seems to work for db
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
-import { createSession, deleteSession } from '../../lib/session'; // Changed to relative path
+import { createSession, deleteSession } from '@/lib/session'; // Reverted to alias path
 
 const LoginSchema = z.object({
   username: z.string().min(1, { message: 'El nombre de usuario es requerido.' }),
@@ -79,7 +79,8 @@ export async function handleLogin(
     }
 
     // Comparar la contraseña proporcionada con el hash almacenado
-    const passwordMatches = bcrypt.compareSync(password, user.password_hash);
+    // TODO: Asegurarse que user.password_hash existe y no es null antes de comparar
+    const passwordMatches = user.password_hash ? bcrypt.compareSync(password, user.password_hash) : false;
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
@@ -88,19 +89,15 @@ export async function handleLogin(
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
         console.error('Error al actualizar lastLogin:', updateError);
-        // No bloqueamos el login por esto, pero es bueno registrarlo
       }
       
       const sessionPayload = {
         userId: user.id.toString(),
         username: user.username,
-        roleId: user.role_id, // Asegúrate que esto venga de la DB
-        // Puedes añadir más datos a la sesión si es necesario (ej. permisos resumidos)
+        roleId: user.role_id,
       };
-      await createSession(sessionPayload); // Crear la sesión y establecer la cookie
+      await createSession(sessionPayload);
 
-      // Redirigir al dashboard después de un login exitoso
-      // Next.js recomienda usar redirect() fuera del bloque try/catch
     } else {
       console.log(`Contraseña incorrecta para: ${username}`);
       return {
@@ -117,13 +114,10 @@ export async function handleLogin(
       errors: { general: ['Ocurrió un error inesperado. Por favor, inténtelo más tarde.'] }
     };
   }
-  // La redirección debe estar fuera del try/catch
-  redirect('/');
+  redirect('/'); // Redirigir al dashboard después de un login exitoso
 }
 
 export async function handleLogout() {
-  // TODO: Limpiar datos de la sesión (si usas un store de sesión del lado del servidor)
-  // Por ahora, solo eliminamos la cookie que es el enfoque principal con JWTs httpOnly
   await deleteSession();
   redirect('/login');
 }
