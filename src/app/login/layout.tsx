@@ -26,7 +26,10 @@ export default function LoginLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}>
+      <body 
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        suppressHydrationWarning={true}
+      >
         {/* AppShell se omite intencionalmente aquí para una página de login limpia */}
         {children}
         <Toaster />
