@@ -16,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { InventoryItemSchema, AdjustStockSchema, type InventoryItemFormInput, type AdjustStockFormInput, addInventoryItem, updateInventoryItem, deleteInventoryItem, adjustStock, getInventoryItems } from "@/app/actions/inventory.actions";
+import { InventoryItemSchema, AdjustStockSchema } from "@/app/schemas/inventory.schemas";
+import { type InventoryItemFormInput, type AdjustStockFormInput, addInventoryItem, updateInventoryItem, deleteInventoryItem, adjustStock, getInventoryItems } from "@/app/actions/inventory.actions";
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -165,7 +166,7 @@ export default function InventoryPage() {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el artículo.", errors: response.errors });
     }
   };
-  
+
   const handleAdjustStockSubmit = async (data: AdjustStockFormInput) => {
     const response = await adjustStock(data);
     if (response.success && response.inventoryItem) {
@@ -311,12 +312,12 @@ export default function InventoryPage() {
                 {inventory.map((item) => (
                   <TableRow key={item.id} className={item.currentStock <= item.reorderLevel ? "bg-red-500/5 dark:bg-red-700/10" : ""}>
                     <TableCell>
-                      <Image 
-                        src={item.imageUrl || "https://placehold.co/40x40.png?text=N/A"} 
-                        alt={item.name} 
-                        width={40} 
-                        height={40} 
-                        className="rounded" 
+                      <Image
+                        src={item.imageUrl || "https://placehold.co/40x40.png?text=N/A"}
+                        alt={item.name}
+                        width={40}
+                        height={40}
+                        className="rounded"
                         data-ai-hint={item.category === "Electrónica" ? "dispositivo electrónico" : "imagen producto"}
                       />
                     </TableCell>
@@ -414,3 +415,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    

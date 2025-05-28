@@ -18,13 +18,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ContactSchema, type ContactFormInput, addContact, updateContact, deleteContact, getContacts } from "@/app/actions/contacts.actions";
+import { ContactSchema } from "@/app/schemas/contacts.schemas";
+import { type ContactFormInput, addContact, updateContact, deleteContact, getContacts } from "@/app/actions/contacts.actions";
 import { useToast } from "@/hooks/use-toast";
 
 interface AppContact extends ContactFormInput {
   // avatarUrl and lastInteraction are for display only if not in DB schema
-  avatarUrl?: string; 
-  lastInteraction?: string; 
+  avatarUrl?: string;
+  lastInteraction?: string;
 }
 
 
@@ -35,7 +36,7 @@ function ContactForm({ contact, onFormSubmit, closeDialog }: { contact?: AppCont
       name: '',
       email: '',
       phone: '',
-      type: undefined, 
+      type: undefined,
       company: '',
     },
   });
@@ -101,19 +102,15 @@ export default function ContactsPage() {
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    async function loadContacts() {
-      const serverContacts = await getContacts();
-      // Map server data to AppContact if needed, especially for avatarUrl/lastInteraction if not in DB
-      setContacts(serverContacts.map(c => ({...c, avatarUrl: `https://placehold.co/40x40.png?text=${c.name.substring(0,2).toUpperCase()}`, lastInteraction: "N/A" })));
-    }
-    loadContacts();
-  }, []);
-
   const refreshContacts = async () => {
     const serverContacts = await getContacts();
     setContacts(serverContacts.map(c => ({...c, avatarUrl: `https://placehold.co/40x40.png?text=${c.name.substring(0,2).toUpperCase()}`, lastInteraction: "N/A" })));
   };
+
+  useEffect(() => {
+    refreshContacts();
+  }, []);
+
 
   const handleAddSubmit = async (data: ContactFormInput) => {
     const response = await addContact(data);
@@ -255,7 +252,7 @@ export default function ContactsPage() {
                           <DropdownMenuSeparator />
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 onSelect={(e) => {e.preventDefault(); setDeletingContactId(contact.id! )}}
                                 className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
                                 <Trash2 className="mr-2 h-4 w-4" /> Eliminar
@@ -313,3 +310,5 @@ export default function ContactsPage() {
     </div>
   );
 }
+
+    

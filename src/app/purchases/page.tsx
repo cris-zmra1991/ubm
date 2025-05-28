@@ -17,7 +17,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PurchaseOrderSchema, type PurchaseOrderFormInput, addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders } from "@/app/actions/purchases.actions";
+import { PurchaseOrderSchema } from "@/app/schemas/purchases.schemas";
+import { type PurchaseOrderFormInput, addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders } from "@/app/actions/purchases.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: PurchaseOrderFormInput["status"]) => {
@@ -43,7 +44,7 @@ function PurchaseOrderForm({ purchaseOrder, onFormSubmit, closeDialog }: { purch
     defaultValues: purchaseOrder || {
       poNumber: '',
       vendor: '',
-      date: new Date().toISOString().split('T')[0], 
+      date: new Date().toISOString().split('T')[0],
       totalAmount: 0,
       status: 'Borrador',
     },
@@ -116,7 +117,7 @@ export default function PurchasesPage() {
     const serverPOs = await getPurchaseOrders();
     setPurchaseOrders(serverPOs);
   };
-  
+
   useEffect(() => {
     refreshPurchaseOrders();
   }, []);
@@ -161,7 +162,7 @@ export default function PurchasesPage() {
     setEditingPurchaseOrder(po);
     setIsEditDialogOpen(true);
   };
-  
+
   const handleStatusUpdate = async (poId: string, newStatus: PurchaseOrderFormInput["status"]) => {
     const poToUpdate = purchaseOrders.find(po => po.id === poId);
     if (!poToUpdate) return;
@@ -226,7 +227,7 @@ export default function PurchasesPage() {
               <TabsTrigger value="Recibida">Recibidas</TabsTrigger>
               <TabsTrigger value="Cancelada">Canceladas</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value={activeTab}>
                 <div className="overflow-x-auto">
                   <Table>
@@ -327,3 +328,5 @@ export default function PurchasesPage() {
     </div>
   );
 }
+
+    

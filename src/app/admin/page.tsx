@@ -16,16 +16,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { 
-  CompanyInfoSchema, type CompanyInfoFormInput, updateCompanyInfo, getCompanyInfo,
-  UserSchema, type UserFormInput, addUser, updateUser, deleteUser, getUsers, getRoles as fetchRoles,
-  SecuritySettingsSchema, type SecuritySettingsFormInput, updateSecuritySettings, getSecuritySettings,
-  NotificationSettingsSchema, type NotificationSettingsFormInput, updateNotificationSettings, getNotificationSettings
+import {
+  CompanyInfoSchema, SecuritySettingsSchema, NotificationSettingsSchema, UserSchema as AdminUserSchema // Renombrar para evitar conflicto
+} from "@/app/schemas/admin.schemas";
+import {
+  type CompanyInfoFormInput,
+  type UserFormInput,
+  type SecuritySettingsFormInput,
+  type NotificationSettingsFormInput,
+  updateCompanyInfo, getCompanyInfo,
+  addUser, updateUser, deleteUser, getUsers, getRoles as fetchRoles,
+  updateSecuritySettings, getSecuritySettings,
+  updateNotificationSettings, getNotificationSettings
 } from "@/app/actions/admin.actions";
 import { useToast } from "@/hooks/use-toast";
 
 
-interface AppUser extends Omit<UserFormInput, 'role_id'> { 
+interface AppUser extends Omit<UserFormInput, 'role_id'> {
   id: string;
   role_id?: number;
   role_name?: string;
@@ -99,7 +106,7 @@ function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: Compa
 
 function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, roles: Role[], onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
     const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<UserFormInput>({
-        resolver: zodResolver(UserSchema.omit(user && !user.password ? { password: true} : {})), 
+        resolver: zodResolver(AdminUserSchema.omit(user && !user.password ? { password: true} : {})),
         defaultValues: user ? { ...user, password: '', role_id: user.role_id } : { username: '', email: '', role_id: undefined, status: 'Activo', password: ''},
     });
     return (
@@ -143,7 +150,7 @@ function SecuritySettingsForm({ defaultValues, onFormSubmit }: { defaultValues: 
         <Controller name="mfaEnabled" control={control} render={({ field }) => <Switch id="mfaEnabled" checked={field.value} onCheckedChange={field.onChange} />} />
       </div>
       {errors.mfaEnabled && <p className="text-sm text-destructive mt-1">{errors.mfaEnabled.message}</p>}
-      
+
       <div className="space-y-1.5">
           <Label htmlFor="passwordPolicy">Política de Contraseñas</Label>
           <Controller name="passwordPolicy" control={control} render={({ field }) => (
@@ -195,7 +202,7 @@ export default function AdminPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [securitySettings, setSecuritySettings] = useState<SecuritySettingsFormInput | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsFormInput | null>(null);
-  
+
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | undefined>(undefined);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -219,7 +226,7 @@ export default function AdminPage() {
   useEffect(() => {
     refreshAdminData();
   }, []);
-  
+
   const handleCompanyInfoSubmit = async (data: CompanyInfoFormInput) => {
     const response = await updateCompanyInfo(data);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
@@ -246,7 +253,7 @@ export default function AdminPage() {
   };
 
   const openUserDialog = (user?: AppUser) => { setEditingUser(user); setIsUserDialogOpen(true); };
-  
+
   const handleSecuritySettingsSubmit = async (data: SecuritySettingsFormInput) => {
     const response = await updateSecuritySettings(data);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
@@ -260,8 +267,8 @@ export default function AdminPage() {
   };
 
 
-  if (!companyInfo || !securitySettings || !notificationSettings || roles.length === 0 && users.length > 0 /* Allow empty users if no roles yet */ ) {
-    return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>; 
+  if (!companyInfo || !securitySettings || !notificationSettings || (users.length > 0 && roles.length === 0) ) {
+    return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>;
   }
 
   return (
@@ -339,7 +346,7 @@ export default function AdminPage() {
                     </CardContent>
                 </Card>
             </TabsContent>
-            
+
             <TabsContent value="security" className="space-y-6">
                 <Card>
                     <CardHeader><CardTitle>Configuración de Seguridad</CardTitle><CardDescription>Configura políticas de seguridad y controles de acceso.</CardDescription></CardHeader>
@@ -380,3 +387,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    
