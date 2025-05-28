@@ -17,7 +17,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { SaleOrderSchema, type SaleOrderFormInput, addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders } from "@/app/actions/sales.actions";
+import { SaleOrderSchema } from "@/app/schemas/sales.schemas";
+import { type SaleOrderFormInput, addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders } from "@/app/actions/sales.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
@@ -160,7 +161,7 @@ export default function SalesPage() {
     }
     setDeletingSaleOrderId(null);
   };
-  
+
   const openEditDialog = (so: SaleOrderFormInput) => {
     setEditingSaleOrder(so);
     setIsEditDialogOpen(true);
@@ -232,7 +233,7 @@ export default function SalesPage() {
               <TabsTrigger value="Pagada">Pagadas</TabsTrigger>
               <TabsTrigger value="Cancelada">Canceladas</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value={activeTab}>
                 <div className="overflow-x-auto">
                   <Table>
@@ -266,7 +267,7 @@ export default function SalesPage() {
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
                                 <DropdownMenuItem> {/* TODO: Implement PDF generation */}
-                                  <FileText className="mr-2 h-4 w-4" /> Ver PDF 
+                                  <FileText className="mr-2 h-4 w-4" /> Ver PDF
                                 </DropdownMenuItem>
                                 {sale.status === "Borrador" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Confirmada")}><CheckCircle className="mr-2 h-4 w-4"/> Confirmar Venta</DropdownMenuItem>}
                                 {sale.status === "Confirmada" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Enviada")}><Store className="mr-2 h-4 w-4" /> Marcar como Enviada</DropdownMenuItem>}
@@ -334,3 +335,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    

@@ -17,9 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { 
-  AccountSchema, type AccountFormInput, 
-  JournalEntrySchema, type JournalEntryFormInput,
+import { AccountSchema, JournalEntrySchema } from "@/app/schemas/accounting.schemas";
+import {
+  type AccountFormInput,
+  type JournalEntryFormInput,
   addAccount, updateAccount, deleteAccount, getAccounts,
   addJournalEntry, updateJournalEntry, deleteJournalEntry, getJournalEntries
 } from "@/app/actions/accounting.actions";
@@ -173,8 +174,8 @@ export default function AccountingPage() {
   }, []);
 
   const handleAccountSubmit = async (data: AccountFormInput) => {
-    const response = editingAccount 
-      ? await updateAccount({ ...data, id: editingAccount.id }) 
+    const response = editingAccount
+      ? await updateAccount({ ...data, id: editingAccount.id })
       : await addAccount(data);
     if (response.success && response.data) {
       toast({ title: "Éxito", description: response.message });
@@ -195,10 +196,10 @@ export default function AccountingPage() {
     }
     setDeletingAccountId(null); // Close dialog
   };
-  
+
   const handleJournalEntrySubmit = async (data: JournalEntryFormInput) => {
-    const response = editingJournalEntry 
-      ? await updateJournalEntry({ ...data, id: editingJournalEntry.id }) 
+    const response = editingJournalEntry
+      ? await updateJournalEntry({ ...data, id: editingJournalEntry.id })
       : await addJournalEntry(data);
     if (response.success && response.data) {
       toast({ title: "Éxito", description: response.message });
@@ -390,14 +391,14 @@ export default function AccountingPage() {
                <h3 className="text-xl font-semibold">Informes Financieros</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
-                  <FileText className="mr-3 h-6 w-6 text-primary" /> 
+                  <FileText className="mr-3 h-6 w-6 text-primary" />
                   <div>
                     <p className="font-semibold">Balance General</p>
                     <p className="text-xs text-muted-foreground text-left">Ver activos, pasivos y patrimonio.</p>
                   </div>
                 </Button>
                 <Button variant="outline" size="lg" className="justify-start h-auto py-4">
-                  <FileText className="mr-3 h-6 w-6 text-primary" /> 
+                  <FileText className="mr-3 h-6 w-6 text-primary" />
                   <div>
                     <p className="font-semibold">Estado de Resultados</p>
                     <p className="text-xs text-muted-foreground text-left">Analizar ingresos y gastos.</p>
@@ -406,7 +407,7 @@ export default function AccountingPage() {
                 {/* ... otros botones de informes ... */}
               </div>
             </TabsContent>
-            
+
             <TabsContent value="reconciliation" className="mt-6">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Conciliación Bancaria</h3>
@@ -444,3 +445,5 @@ export default function AccountingPage() {
     </div>
   );
 }
+
+    

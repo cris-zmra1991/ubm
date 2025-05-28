@@ -17,7 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ExpenseSchema, type ExpenseFormInput, addExpense, updateExpense, deleteExpense, getExpenses } from "@/app/actions/expenses.actions";
+import { ExpenseSchema } from "@/app/schemas/expenses.schemas";
+import { type ExpenseFormInput, addExpense, updateExpense, deleteExpense, getExpenses } from "@/app/actions/expenses.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: ExpenseFormInput["status"]) => {
@@ -380,3 +381,5 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
+    
