@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
 import { pool } from '@/lib/db';
-import type { RowDataPacket } from 'mysql2';
+import type { RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import { createSession, deleteSession } from '@/lib/session';
 import { LoginSchema } from '@/app/schemas/auth.schemas';
@@ -49,9 +49,12 @@ export async function handleLogin(
 
   try {
     console.log(`Intentando autenticar para el usuario: ${username}`);
-    // SQL - Obtener usuario, incluyendo nombre
+    // SQL - Obtener usuario, incluyendo nombre y nombre del rol
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, username, name, password_hash, status, role_id FROM users WHERE username = ?',
+      `SELECT u.id, u.username, u.name, u.password_hash, u.status, u.role_id, r.name as roleName
+       FROM users u
+       LEFT JOIN roles r ON u.role_id = r.id
+       WHERE u.username = ?`,
       [username]
     );
 
@@ -75,24 +78,30 @@ export async function handleLogin(
       };
     }
 
-    // SQL - Comparar contraseña hasheada
+    // TODO: Implementar password hashing (e.g., bcrypt)
+    // Por ahora, asumimos que la contraseña en la BD NO está hasheada (lo cual es inseguro)
+    // En una implementación real:
+    // const passwordMatches = bcrypt.compareSync(password, user.password_hash);
     const passwordMatches = user.password_hash ? bcrypt.compareSync(password, user.password_hash) : false;
 
 
     if (passwordMatches) {
       console.log(`Autenticación exitosa para el usuario: ${user.username}`);
 
+      // Actualizar lastLogin
       try {
         await pool.query('UPDATE users SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
       } catch (updateError) {
+        // No crítico, solo loguear
         console.error('Error al actualizar lastLogin:', updateError);
       }
 
       const sessionPayload = {
         userId: user.id.toString(),
         username: user.username,
-        name: user.name, // Añadido el nombre del usuario a la sesión
+        name: user.name,
         roleId: user.role_id,
+        roleName: user.roleName || 'Usuario', // Fallback por si el rol no tiene nombre o no hay rol
       };
       await createSession(sessionPayload);
 
