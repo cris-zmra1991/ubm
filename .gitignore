@@ -1,64 +1,44 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Dependencies
+# dependencies
 /node_modules
 /.pnp
 .pnp.js
-.yarn/install-state.gz
 
-# Testing
+# testing
 /coverage
 
-# Next.js
+# next.js
 /.next/
 /out/
 
-# Production
+# production
 /build
 
-# Misc
+# misc
 .DS_Store
 *.pem
 
-# Debug
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Local Environment Variables
+# local env files
 .env
 .env*.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Editor directories and files
-.idea
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.sublime-workspace
+# vercel
+.vercel
 
-# System files
-.AppleDouble
-.LSOverride
-
-# NextJS specific
-.next
-next-env.d.ts
-*.log
-
-# Firebase
-.firebase
-firebase-debug.log
-database-debug.log
-
-# TypeScript cache
+# typescript
 *.tsbuildinfo
+next-env.d.ts
 
-# Output of 'firebase init hosting'
-public
-
-# IDX specific files
-.idx
+# زيتون
+. زيتون/
+secrets.*.json
