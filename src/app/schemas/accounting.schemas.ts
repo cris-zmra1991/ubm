@@ -9,7 +9,7 @@ export const AccountSchema = z.object({
     errorMap: () => ({ message: 'Selecciona un tipo de cuenta válido.' }),
   }),
   balance: z.coerce.number().default(0), // Este será el saldo directo de la cuenta
-  parentAccountId: z.string().nullable().optional(), // ID de la cuenta padre
+  parentAccountId: z.string().nullable().optional().default(null), // ID de la cuenta padre
 });
 export type AccountFormInput = z.infer<typeof AccountSchema>;
 
@@ -24,3 +24,5 @@ export const JournalEntrySchema = z.object({
   amount: z.coerce.number().positive('El monto debe ser positivo.'),
 });
 export type JournalEntryFormInput = z.infer<typeof JournalEntrySchema>;
+
+    

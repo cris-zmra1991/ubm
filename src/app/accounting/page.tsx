@@ -42,7 +42,7 @@ const chartConfig = {
 } satisfies ChartConfig
 
 
-function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: { account?: AccountFormInput, existingAccounts: AccountWithDetails[], onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
+function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: { account?: AccountWithDetails, existingAccounts: AccountWithDetails[], onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<AccountFormInput>({
     resolver: zodResolver(AccountSchema),
     defaultValues: account || { code: '', name: '', type: undefined, balance: 0, parentAccountId: null },
@@ -92,7 +92,7 @@ function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: {
       </div>
       <div>
         <Label htmlFor="balance">Saldo Inicial (€)</Label>
-        <Input id="balance" type="number" step="0.01" {...register("balance")} disabled={!!account} />
+        <Input id="balance" type="number" step="0.01" {...register("balance", { valueAsNumber: true })} disabled={!!account} />
         {errors.balance && <p className="text-sm text-destructive mt-1">{errors.balance.message}</p>}
          {!!account && <p className="text-xs text-muted-foreground mt-1">El saldo se actualiza mediante asientos contables.</p>}
       </div>
@@ -104,7 +104,7 @@ function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: {
   );
 }
 
-function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entry?: JournalEntryFormInput, accounts: AccountWithDetails[], onFormSubmit: (data: JournalEntryFormInput) => Promise<void>, closeDialog: () => void }) {
+function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entry?: JournalEntryFormInput & {id: string}, accounts: AccountWithDetails[], onFormSubmit: (data: JournalEntryFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<JournalEntryFormInput>({
     resolver: zodResolver(JournalEntrySchema),
     defaultValues: entry || { date: new Date().toISOString().split('T')[0], entryNumber: '', description: '', debitAccountCode: '', creditAccountCode: '', amount: 0 },
@@ -152,7 +152,7 @@ function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entr
       </div>
       <div>
         <Label htmlFor="amount">Monto (€)</Label>
-        <Input id="amount" type="number" step="0.01" {...register("amount")} />
+        <Input id="amount" type="number" step="0.01" {...register("amount", { valueAsNumber: true })} />
         {errors.amount && <p className="text-sm text-destructive mt-1">{errors.amount.message}</p>}
       </div>
       <DialogFooter>
@@ -166,7 +166,7 @@ function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entr
 
 export default function AccountingPage() {
   const [chartOfAccounts, setChartOfAccounts] = useState<AccountWithDetails[]>([]);
-  const [journalEntries, setJournalEntries] = useState<JournalEntryFormInput[]>([]);
+  const [journalEntries, setJournalEntries] = useState<(JournalEntryFormInput & { id: string })[]>([]);
   const { toast } = useToast();
 
   const [isAccountDialogOpen, setIsAccountDialogOpen] = useState(false);
@@ -174,14 +174,15 @@ export default function AccountingPage() {
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
 
   const [isJournalEntryDialogOpen, setIsJournalEntryDialogOpen] = useState(false);
-  const [editingJournalEntry, setEditingJournalEntry] = useState<JournalEntryFormInput | undefined>(undefined);
+  const [editingJournalEntry, setEditingJournalEntry] = useState<(JournalEntryFormInput & { id: string }) | undefined>(undefined);
   const [deletingJournalEntryId, setDeletingJournalEntryId] = useState<string | null>(null);
 
   const refreshAccountingData = async () => {
+    // TODO: Cargar datos del servidor
     const accountsData = await getAccounts();
-    setChartOfAccounts(accountsData);
+    setChartOfAccounts(accountsData); // getAccounts ya devuelve AccountWithDetails
     const journalEntriesData = await getJournalEntries();
-    setJournalEntries(journalEntriesData.map(entry => ({...entry, id: entry.id || Math.random().toString() }))); // Ensure ID for key prop
+    setJournalEntries(journalEntriesData);
   };
 
   useEffect(() => {
@@ -236,13 +237,12 @@ export default function AccountingPage() {
     setDeletingJournalEntryId(null);
   };
 
-  // Helper para renderizar cuentas jerárquicamente
   const renderAccountsRows = (accountsToRender: AccountWithDetails[], level = 0): JSX.Element[] => {
     let rows: JSX.Element[] = [];
     for (const acc of accountsToRender) {
       rows.push(
         <TableRow key={acc.id}>
-          <TableCell style={{ paddingLeft: `${level * 20 + 16}px` }}>{acc.code}</TableCell>
+          <TableCell style={{ paddingLeft: `${level * 20 + 16}px` }}>{level > 0 ? '↳ ' : ''}{acc.code}</TableCell>
           <TableCell className="font-medium">{acc.name}</TableCell>
           <TableCell>{acc.type}</TableCell>
           <TableCell className="text-right">€{acc.balance.toFixed(2)}</TableCell>
@@ -260,13 +260,17 @@ export default function AccountingPage() {
         </TableRow>
       );
       if (acc.children && acc.children.length > 0) {
-        rows = rows.concat(renderAccountsRows(acc.children, level + 1));
+        // Ordenar hijos por código antes de renderizar
+        const sortedChildren = [...acc.children].sort((a,b) => a.code.localeCompare(b.code));
+        rows = rows.concat(renderAccountsRows(sortedChildren, level + 1));
       }
     }
     return rows;
   };
   
-  const rootAccounts = chartOfAccounts.filter(acc => !acc.parentAccountId || !chartOfAccounts.find(a => a.id === acc.parentAccountId));
+  const rootAccounts = chartOfAccounts
+    .filter(acc => !acc.parentAccountId || !chartOfAccounts.find(a => a.id === acc.parentAccountId))
+    .sort((a, b) => a.code.localeCompare(b.code));
 
 
   return (
@@ -278,7 +282,7 @@ export default function AccountingPage() {
             <div>
               <CardTitle className="text-3xl font-bold">Contabilidad</CardTitle>
               <CardDescription className="text-lg text-muted-foreground">
-                Gestiona registros financieros, genera informes y realiza un seguimiento de la salud financiera general.
+                Gestiona registros financieros y la salud financiera.
               </CardDescription>
             </div>
           </div>
@@ -289,12 +293,11 @@ export default function AccountingPage() {
               <TabsTrigger value="dashboard">Panel Principal</TabsTrigger>
               <TabsTrigger value="chartOfAccounts">Plan de Cuentas</TabsTrigger>
               <TabsTrigger value="journalEntries">Asientos Contables</TabsTrigger>
-              <TabsTrigger value="reports">Informes Financieros</TabsTrigger>
-              <TabsTrigger value="reconciliation">Conciliación Bancaria</TabsTrigger>
+              <TabsTrigger value="reports">Informes</TabsTrigger>
+              <TabsTrigger value="reconciliation">Conciliación</TabsTrigger>
             </TabsList>
 
             <TabsContent value="dashboard" className="mt-6 space-y-6">
-               {/* ... (contenido del dashboard sin cambios) ... */}
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -400,7 +403,7 @@ export default function AccountingPage() {
                         <TableCell className="font-medium">{entry.description}</TableCell>
                         <TableCell>{entry.debitAccountCode} - {chartOfAccounts.find(acc=>acc.code === entry.debitAccountCode)?.name}</TableCell>
                         <TableCell>{entry.creditAccountCode} - {chartOfAccounts.find(acc=>acc.code === entry.creditAccountCode)?.name}</TableCell>
-                        <TableCell className="text-right">€{entry.amount.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">€{Number(entry.amount).toFixed(2)}</TableCell>
                         <TableCell className="text-right">
                             <Button variant="ghost" size="sm" onClick={() => { setEditingJournalEntry(entry); setIsJournalEntryDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
                              <AlertDialog>
@@ -452,25 +455,27 @@ export default function AccountingPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={isAccountDialogOpen} onOpenChange={setIsAccountDialogOpen}>
+      <Dialog open={isAccountDialogOpen} onOpenChange={(isOpen) => { setIsAccountDialogOpen(isOpen); if (!isOpen) setEditingAccount(undefined); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingAccount ? "Editar Cuenta" : "Añadir Nueva Cuenta"}</DialogTitle>
             <DialogDescription>{editingAccount ? "Actualiza los detalles de la cuenta." : "Completa los detalles para añadir una nueva cuenta."}</DialogDescription>
           </DialogHeader>
-          <AccountForm account={editingAccount} existingAccounts={chartOfAccounts} onFormSubmit={handleAccountSubmit} closeDialog={() => setIsAccountDialogOpen(false)} />
+          <AccountForm account={editingAccount} existingAccounts={chartOfAccounts} onFormSubmit={handleAccountSubmit} closeDialog={() => { setIsAccountDialogOpen(false); setEditingAccount(undefined);}} />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isJournalEntryDialogOpen} onOpenChange={setIsJournalEntryDialogOpen}>
+      <Dialog open={isJournalEntryDialogOpen} onOpenChange={(isOpen) => { setIsJournalEntryDialogOpen(isOpen); if (!isOpen) setEditingJournalEntry(undefined); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingJournalEntry ? "Editar Asiento Contable" : "Nuevo Asiento Contable"}</DialogTitle>
             <DialogDescription>{editingJournalEntry ? "Actualiza los detalles del asiento." : "Completa los detalles para un nuevo asiento."}</DialogDescription>
           </DialogHeader>
-          <JournalEntryForm entry={editingJournalEntry} accounts={chartOfAccounts} onFormSubmit={handleJournalEntrySubmit} closeDialog={() => setIsJournalEntryDialogOpen(false)} />
+          <JournalEntryForm entry={editingJournalEntry} accounts={chartOfAccounts} onFormSubmit={handleJournalEntrySubmit} closeDialog={() => { setIsJournalEntryDialogOpen(false); setEditingJournalEntry(undefined); }} />
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+    

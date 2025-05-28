@@ -16,9 +16,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PurchaseOrderSchema, type PurchaseOrderFormInput, type PurchaseOrderItemFormInput } from "@/app/schemas/purchases.schemas";
-import { addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders } from "@/app/actions/purchases.actions";
+import { PurchaseOrderSchema } from "@/app/schemas/purchases.schemas";
+import type { PurchaseOrderFormInput, PurchaseOrderItemFormInput } from "@/app/schemas/purchases.schemas";
+import { addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders, type PurchaseOrderWithDetails } from "@/app/actions/purchases.actions";
 import { getInventoryItems, type InventoryItemFormInput } from "@/app/actions/inventory.actions";
+import { getContacts, type ContactFormInput } from "@/app/actions/contacts.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: PurchaseOrderFormInput["status"]) => {
@@ -38,24 +40,27 @@ const getStatusBadge = (status: PurchaseOrderFormInput["status"]) => {
   }
 };
 
-// Tipo de datos para el frontend que incluye el ID de la OC
-interface AppPurchaseOrder extends Omit<PurchaseOrderFormInput, 'items'> {
+interface AppPurchaseOrder extends Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> {
   id: string;
-  poNumber: string; // Se añade aquí después de la creación
-  totalAmount: number; // Se añade aquí después de la creación/cálculo
-  items: PurchaseOrderItemFormInput[]; // Para la edición
+  poNumber: string;
+  totalAmount: number;
+  vendorId: string;
+  vendorName?: string;
+  items: PurchaseOrderItemFormInput[];
 }
 
 
-function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeDialog }: { purchaseOrder?: AppPurchaseOrder, inventoryItems: InventoryItemFormInput[], onFormSubmit: (data: PurchaseOrderFormInput) => Promise<void>, closeDialog: () => void }) {
+function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFormSubmit, closeDialog }: { purchaseOrder?: AppPurchaseOrder, inventoryItems: InventoryItemFormInput[], vendorContacts: (ContactFormInput & {id: string})[], onFormSubmit: (data: PurchaseOrderFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<PurchaseOrderFormInput>({
     resolver: zodResolver(PurchaseOrderSchema),
-    defaultValues: purchaseOrder || {
-      vendor: '',
-      date: new Date().toISOString().split('T')[0],
-      status: 'Borrador',
-      items: [{ inventoryItemId: '', quantity: 1, unitPrice: 0 }],
-    },
+    defaultValues: purchaseOrder ? 
+      { ...purchaseOrder, vendorId: purchaseOrder.vendorId.toString() } : 
+      {
+        vendorId: '',
+        date: new Date().toISOString().split('T')[0],
+        status: 'Borrador',
+        items: [{ inventoryItemId: '', quantity: 1, unitPrice: 0 }],
+      },
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -81,11 +86,23 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeD
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
-      {/* poNumber se genera automáticamente, no se muestra en el formulario de creación/edición */}
       <div>
-        <Label htmlFor="vendor">Proveedor</Label>
-        <Input id="vendor" {...register("vendor")} />
-        {errors.vendor && <p className="text-sm text-destructive mt-1">{errors.vendor.message}</p>}
+        <Label htmlFor="vendorId">Proveedor</Label>
+        <Controller
+          name="vendorId"
+          control={control}
+          render={({ field }) => (
+            <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <SelectTrigger id="vendorId"><SelectValue placeholder="Seleccionar proveedor..." /></SelectTrigger>
+              <SelectContent>
+                {vendorContacts.map(contact => (
+                  <SelectItem key={contact.id} value={contact.id.toString()}>{contact.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        {errors.vendorId && <p className="text-sm text-destructive mt-1">{errors.vendorId.message}</p>}
       </div>
       <div>
         <Label htmlFor="date">Fecha</Label>
@@ -143,12 +160,12 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeD
             </div>
             <div className="col-span-2">
               <Label htmlFor={`items.${index}.quantity`} className="text-xs">Cantidad</Label>
-              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`)} />
+              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true })} />
               {errors.items?.[index]?.quantity && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
             </div>
             <div className="col-span-3">
               <Label htmlFor={`items.${index}.unitPrice`} className="text-xs">Precio Unit. (€)</Label>
-              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`)} />
+              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} />
               {errors.items?.[index]?.unitPrice && <p className="text-sm text-destructive mt-1">{errors.items[index]?.unitPrice?.message}</p>}
             </div>
             <div className="col-span-2 flex items-end">
@@ -161,7 +178,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeD
         <Button type="button" variant="outline" size="sm" onClick={() => append({ inventoryItemId: '', quantity: 1, unitPrice: 0 })}>
           <PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo
         </Button>
-        {errors.items && typeof errors.items === 'object' && 'message' in errors.items && <p className="text-sm text-destructive mt-1">{errors.items.message}</p>}
+        {errors.items && typeof errors.items === 'object' && 'message' in errors.items && <p className="text-sm text-destructive mt-1">{errors.items.message as string}</p>}
       </div>
 
       <div className="text-right font-semibold text-lg">
@@ -172,7 +189,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeD
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? (purchaseOrder ? "Guardando..." : "Añadiendo...") : (purchaseOrder ? "Guardar Cambios" : "Crear Orden")}
+          {isSubmitting ? (purchaseOrder ? "Guardando..." : "Creando...") : (purchaseOrder ? "Guardar Cambios" : "Crear Orden")}
         </Button>
       </DialogFooter>
     </form>
@@ -182,6 +199,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, onFormSubmit, closeD
 export default function PurchasesPage() {
   const [purchaseOrders, setPurchaseOrders] = useState<AppPurchaseOrder[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemFormInput[]>([]);
+  const [vendorContacts, setVendorContacts] = useState<(ContactFormInput & {id: string})[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingPurchaseOrder, setEditingPurchaseOrder] = useState<AppPurchaseOrder | undefined>(undefined);
@@ -190,12 +208,15 @@ export default function PurchasesPage() {
   const [activeTab, setActiveTab] = useState("all");
 
   const refreshData = async () => {
-    const [serverPOs, serverInvItems] = await Promise.all([
+    // TODO: Cargar datos del servidor
+    const [serverPOs, serverInvItems, serverVendorContacts] = await Promise.all([
         getPurchaseOrders(),
-        getInventoryItems()
+        getInventoryItems(),
+        getContacts({ type: 'Proveedor' })
     ]);
     setPurchaseOrders(serverPOs.map(po => ({ ...po, items: [] }))); // Items se cargan al editar o ver detalle
     setInventoryItems(serverInvItems);
+    setVendorContacts(serverVendorContacts);
   };
 
   useEffect(() => {
@@ -215,11 +236,9 @@ export default function PurchasesPage() {
 
   const handleEditSubmit = async (data: PurchaseOrderFormInput) => {
     if (!editingPurchaseOrder?.id) return;
-    // La actualización de items es compleja. Por ahora, solo actualizamos campos principales.
-    // Se pasa el 'data' original con 'items' para cumplir el tipo, pero solo 'status', 'vendor', 'date' se usan en la action.
     const dataForUpdate = { ...data, id: editingPurchaseOrder.id, poNumber: editingPurchaseOrder.poNumber, totalAmount: editingPurchaseOrder.totalAmount };
 
-    const response = await updatePurchaseOrder(dataForUpdate as any); // Cast as any por simplicidad de tipos aquí
+    const response = await updatePurchaseOrder(dataForUpdate);
     if (response.success && response.purchaseOrder) {
       toast({ title: "Éxito", description: response.message });
       refreshData();
@@ -242,18 +261,35 @@ export default function PurchasesPage() {
     setDeletingPurchaseOrderId(null);
   };
 
-  const openEditDialog = (po: AppPurchaseOrder) => {
-    // TODO: Idealmente, aquí se debería cargar los items de la orden de compra si se va a permitir editarlos.
-    // Por ahora, el formulario de edición es simplificado.
-    setEditingPurchaseOrder(po);
-    setIsEditDialogOpen(true);
+  const openEditDialog = async (poId: string) => {
+    // Cargar la orden completa con sus items para editar
+    const orderToEdit = await getPurchaseOrderById(poId);
+    if (orderToEdit) {
+        setEditingPurchaseOrder(orderToEdit as AppPurchaseOrder); // Cast as AppPurchaseOrder
+        setIsEditDialogOpen(true);
+    } else {
+        toast({ variant: "destructive", title: "Error", description: "No se pudo cargar la orden para editar."});
+    }
   };
 
   const handleStatusUpdate = async (poId: string, newStatus: PurchaseOrderFormInput["status"]) => {
     const poToUpdate = purchaseOrders.find(po => po.id === poId);
     if (!poToUpdate) return;
-    // Se necesitaría pasar el objeto completo para la acción de update, incluyendo items (aunque no se editen)
-    const response = await updatePurchaseOrder({ ...poToUpdate, status: newStatus });
+    
+    // Para updatePurchaseOrder, necesitamos pasar el objeto completo.
+    // Si los items no se cargan en la lista principal, necesitaríamos cargarlos aquí
+    // o simplificar la acción de updatePurchaseOrder para que solo actualice el estado
+    // sin requerir todos los items. Por ahora, asumimos que poToUpdate tiene la info necesaria
+    // que no sean los items.
+    const dataForStatusUpdate: PurchaseOrderFormInput & {id:string} = {
+        id: poToUpdate.id,
+        vendorId: poToUpdate.vendorId,
+        date: poToUpdate.date,
+        status: newStatus,
+        items: poToUpdate.items, // Esto podría estar vacío si no se cargan los items en la lista principal
+    };
+
+    const response = await updatePurchaseOrder(dataForStatusUpdate);
     if (response.success) {
       toast({ title: "Éxito", description: `Orden ${poToUpdate.poNumber} actualizada a ${newStatus}.` });
       refreshData();
@@ -274,7 +310,7 @@ export default function PurchasesPage() {
               <div>
                 <CardTitle className="text-3xl font-bold">Gestión de Compras</CardTitle>
                 <CardDescription className="text-lg text-muted-foreground">
-                  Realiza seguimiento y gestiona todas las órdenes de compra, desde el borrador hasta su finalización.
+                  Realiza seguimiento y gestiona todas las órdenes de compra.
                 </CardDescription>
               </div>
             </div>
@@ -284,12 +320,12 @@ export default function PurchasesPage() {
                   <PlusCircle className="mr-2 h-5 w-5" /> Nueva Orden de Compra
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-2xl"> {/* Aumentar ancho para items */}
+              <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Nueva Orden de Compra</DialogTitle>
                   <DialogDescription>Completa los detalles para crear una nueva OC.</DialogDescription>
                 </DialogHeader>
-                <PurchaseOrderForm inventoryItems={inventoryItems} onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
+                <PurchaseOrderForm inventoryItems={inventoryItems} vendorContacts={vendorContacts} onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
               </DialogContent>
             </Dialog>
           </div>
@@ -298,7 +334,7 @@ export default function PurchasesPage() {
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input placeholder="Buscar órdenes de compra (ej., N° OC, proveedor)..." className="pl-10 w-full" />
+              <Input placeholder="Buscar órdenes de compra..." className="pl-10 w-full" />
             </div>
             <Button variant="outline">
               <Filter className="mr-2 h-5 w-5" /> Filtrar
@@ -332,7 +368,7 @@ export default function PurchasesPage() {
                       {filteredPurchaseOrders.map((po) => (
                         <TableRow key={po.id}>
                           <TableCell className="font-medium">{po.poNumber || 'N/A'}</TableCell>
-                          <TableCell>{po.vendor}</TableCell>
+                          <TableCell>{po.vendorName || po.vendorId}</TableCell>
                           <TableCell>{po.date}</TableCell>
                           <TableCell className="text-right">€{po.totalAmount.toFixed(2)}</TableCell>
                           <TableCell>{getStatusBadge(po.status)}</TableCell>
@@ -344,10 +380,9 @@ export default function PurchasesPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEditDialog(po)}>
+                                <DropdownMenuItem onClick={() => openEditDialog(po.id!)}>
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
-                                {/* <DropdownMenuItem> <FileText className="mr-2 h-4 w-4" /> Ver PDF </DropdownMenuItem> */}
                                 {po.status === "Borrador" && <DropdownMenuItem onClick={() => handleStatusUpdate(po.id!, "Confirmada")}><CheckCircle className="mr-2 h-4 w-4" /> Confirmar Orden</DropdownMenuItem>}
                                 {po.status === "Confirmada" && <DropdownMenuItem onClick={() => handleStatusUpdate(po.id!, "Enviada")}><Truck className="mr-2 h-4 w-4" /> Marcar como Enviada</DropdownMenuItem>}
                                 {po.status === "Enviada" && <DropdownMenuItem onClick={() => handleStatusUpdate(po.id!, "Recibida")}><CheckCircle className="mr-2 h-4 w-4" /> Marcar como Recibida</DropdownMenuItem>}
@@ -405,9 +440,11 @@ export default function PurchasesPage() {
             <DialogTitle>Editar Orden de Compra: {editingPurchaseOrder?.poNumber}</DialogTitle>
             <DialogDescription>Actualiza los detalles de la OC. La edición de artículos individuales no está disponible en este formulario simplificado.</DialogDescription>
           </DialogHeader>
-          {editingPurchaseOrder && <PurchaseOrderForm purchaseOrder={editingPurchaseOrder} inventoryItems={inventoryItems} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingPurchaseOrder(undefined);}} />}
+          {editingPurchaseOrder && <PurchaseOrderForm purchaseOrder={editingPurchaseOrder} inventoryItems={inventoryItems} vendorContacts={vendorContacts} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingPurchaseOrder(undefined);}} />}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+    

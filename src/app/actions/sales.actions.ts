@@ -3,9 +3,9 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { pool } from '@/lib/db';
+import { pool } from '../../lib/db'; // Ajustado a ruta relativa
 import type { Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { SaleOrderSchema, type SaleOrderItemFormInput } from '@/app/schemas/sales.schemas';
+import { SaleOrderSchema, type SaleOrderItemFormInput } from '../schemas/sales.schemas';
 // import { adjustStock } from './inventory.actions'; // Para ajustar stock
 
 export type SaleOrderFormInput = z.infer<typeof SaleOrderSchema>;
@@ -14,23 +14,35 @@ export interface SaleOrderActionResponse {
   success: boolean;
   message: string;
   errors?: {
-    // invoiceNumber?: string[]; // Ya no se valida aquí
-    customer?: string[];
+    customerId?: string[];
     date?: string[];
-    // totalAmount?: string[]; // Se calculará
     status?: string[];
-    items?: string[]; // Para errores a nivel de array de items
+    items?: string[];
     general?: string[];
     itemErrors?: { index: number, field: string, message: string }[];
   };
   saleOrder?: SaleOrderFormInput & { id: string; invoiceNumber: string; totalAmount: number };
 }
 
+// Tipo para representar la orden de venta completa con sus items y nombre del cliente
+export interface SaleOrderWithDetails extends Omit<SaleOrderFormInput, 'customerId'> {
+  id: string;
+  invoiceNumber: string;
+  totalAmount: number;
+  customerId: string;
+  customerName?: string; // Nombre del cliente
+  items: (SaleOrderItemFormInput & { itemName?: string; itemSku?: string })[];
+}
+
+// TODO: SQL - CREATE TABLE sale_orders (id INT AUTO_INCREMENT PRIMARY KEY, invoiceNumber VARCHAR(255) NOT NULL UNIQUE, customer_id INT, date DATE NOT NULL, totalAmount DECIMAL(10, 2) NOT NULL, status ENUM('Borrador', 'Confirmada', 'Enviada', 'Entregada', 'Pagada', 'Cancelada') NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, FOREIGN KEY (customer_id) REFERENCES contacts(id));
+// TODO: SQL - CREATE TABLE sale_order_items (id INT AUTO_INCREMENT PRIMARY KEY, sale_order_id INT NOT NULL, inventory_item_id INT NOT NULL, quantity INT NOT NULL, unit_price DECIMAL(10, 2) NOT NULL, total_item_price DECIMAL(10,2) NOT NULL, FOREIGN KEY (sale_order_id) REFERENCES sale_orders(id) ON DELETE CASCADE, FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id));
+
+
 async function generateInvoiceNumber(connection: Connection, insertId: number): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  return `PV-${year}${month}-${insertId}`;
+  return `PV-${year}${month}-${insertId.toString().padStart(4, '0')}`;
 }
 
 export async function addSaleOrder(
@@ -51,7 +63,7 @@ export async function addSaleOrder(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { customer, date, status, items } = validatedFields.data;
+  const { customerId, date, status, items } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
@@ -84,10 +96,11 @@ export async function addSaleOrder(
 
     const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
 
-    // Insertar la orden de venta principal
+    // Asumimos que la columna 'customer' ahora almacena el customerId (como string si la columna es VARCHAR)
+    // Idealmente, esta columna se llamaría customer_id y sería INT FK a contacts.id
     const [orderResult] = await connection.query<ResultSetHeader>(
       'INSERT INTO sale_orders (customer, date, totalAmount, status) VALUES (?, ?, ?, ?)',
-      [customer, date, totalAmount, status]
+      [customerId, date, totalAmount, status]
     );
     const saleOrderId = orderResult.insertId;
 
@@ -96,26 +109,20 @@ export async function addSaleOrder(
       return { success: false, message: 'No se pudo crear la cabecera de la orden de venta.' };
     }
 
-    // Generar y actualizar el invoiceNumber
     const invoiceNumber = await generateInvoiceNumber(connection, saleOrderId);
     await connection.query(
       'UPDATE sale_orders SET invoiceNumber = ? WHERE id = ?',
       [invoiceNumber, saleOrderId]
     );
 
-    // Insertar los items de la orden de venta
     for (const item of items) {
       const totalItemPrice = item.quantity * item.unitPrice;
       await connection.query<ResultSetHeader>(
         'INSERT INTO sale_order_items (sale_order_id, inventory_item_id, quantity, unit_price, total_item_price) VALUES (?, ?, ?, ?, ?)',
         [saleOrderId, parseInt(item.inventoryItemId), item.quantity, item.unitPrice, totalItemPrice]
       );
-      // Ajustar stock (disminuir) - Solo si la orden se crea en un estado que descuenta stock (ej. 'Confirmada', 'Enviada')
-      // Para este ejemplo, asumimos que el stock se descuenta al confirmar/enviar, no al crear como 'Borrador'.
-      // Esta lógica se moverá a updateSaleOrder cuando el estado cambie.
     }
 
-    // Si el estado inicial ya descuenta stock (ej: Confirmada directa sin pasar por Borrador)
     if (status === 'Confirmada' || status === 'Enviada' || status === 'Entregada') {
          for (const item of items) {
             await connection.query(
@@ -125,10 +132,9 @@ export async function addSaleOrder(
         }
     }
 
-
     await connection.commit();
 
-    revalidatePath('/sales');
+    revalidatePath('/sales', 'layout');
     return {
       success: true,
       message: 'Orden de Venta añadida exitosamente.',
@@ -139,7 +145,12 @@ export async function addSaleOrder(
     if (connection) await connection.rollback();
     console.error('Error al añadir Orden de Venta (MySQL):', error);
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-      return { success: false, message: 'Error: Uno o más artículos de inventario seleccionados no existen.', errors: { items: ['Artículo de inventario inválido.'] } };
+      if (error.message.includes('fk_soi_inventory_item')) {
+        return { success: false, message: 'Error: Uno o más artículos de inventario seleccionados no existen.', errors: { items: ['Artículo de inventario inválido.'] } };
+      }
+       if (error.message.includes('sale_orders_ibfk_1') || error.message.includes('fk_so_customer')) { // Ajusta el nombre del FK si es diferente
+         return { success: false, message: 'Error: El cliente seleccionado no existe.', errors: { customerId: ['Cliente inválido.'] } };
+      }
     }
     return {
       success: false,
@@ -157,13 +168,8 @@ export async function updateSaleOrder(
   if (!data.id) {
     return { success: false, message: 'ID de Orden de Venta requerido para actualizar.' };
   }
-  // Solo permitir actualizar ciertos campos, no los items directamente por simplicidad.
-  const validatedFields = SaleOrderSchema.omit({ items: true, invoiceNumber: true, totalAmount: true }).extend({
-      status: z.enum(["Borrador", "Confirmada", "Enviada", "Entregada", "Pagada", "Cancelada"]),
-      customer: z.string().min(1),
-      date: z.string().min(1)
-  }).safeParse(data);
-
+  
+  const validatedFields = SaleOrderSchema.omit({ items: true }).safeParse(data);
 
   if (!validatedFields.success) {
     return {
@@ -179,7 +185,7 @@ export async function updateSaleOrder(
   }
 
   const { id } = data;
-  const { customer, date, status } = validatedFields.data;
+  const { customerId, date, status } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
@@ -197,14 +203,12 @@ export async function updateSaleOrder(
     const currentOrder = currentOrderRows[0];
     const oldStatus = currentOrder.status;
 
-    // SQL - Actualizar orden de venta
+    // Asumimos que la columna 'customer' ahora almacena el customerId
     const [result] = await connection.query<ResultSetHeader>(
       'UPDATE sale_orders SET customer = ?, date = ?, status = ? WHERE id = ?',
-      [customer, date, status, id]
+      [customerId, date, status, id]
     );
 
-    // Lógica de ajuste de stock si el estado implica envío/entrega
-    // Si el estado nuevo descuenta stock Y el estado viejo NO lo descontaba
     const descontarStockAhora = ['Confirmada', 'Enviada', 'Entregada'].includes(status);
     const yaSeDescontoStock = ['Confirmada', 'Enviada', 'Entregada', 'Pagada'].includes(oldStatus);
 
@@ -214,7 +218,6 @@ export async function updateSaleOrder(
         [id]
       );
 
-      // Validar stock suficiente ANTES de descontar
       for (const item of itemRows) {
         const [stockRows] = await connection.query<RowDataPacket[]>(
           'SELECT currentStock FROM inventory_items WHERE id = ?',
@@ -225,7 +228,6 @@ export async function updateSaleOrder(
           return { success: false, message: `Stock insuficiente para el artículo ID ${item.inventory_item_id} al intentar actualizar estado.` };
         }
       }
-      // Si hay stock, descontar
       for (const item of itemRows) {
         await connection.query(
           'UPDATE inventory_items SET currentStock = currentStock - ? WHERE id = ?',
@@ -234,14 +236,12 @@ export async function updateSaleOrder(
         console.log(`Stock para item ${item.inventory_item_id} disminuido en ${item.quantity} por OV ${data.invoiceNumber}`);
       }
     }
-    // TODO: Considerar lógica para REVERSAR stock si una orden se cancela DESPUÉS de que el stock fue descontado.
-    // Por ejemplo, si pasa de 'Enviada' a 'Cancelada'.
-
+    // TODO: Lógica para REVERSAR stock si una orden se cancela DESPUÉS de que el stock fue descontado.
 
     await connection.commit();
 
     if (result.affectedRows > 0) {
-      revalidatePath('/sales');
+      revalidatePath('/sales', 'layout');
       return {
         success: true,
         message: 'Orden de Venta actualizada exitosamente.',
@@ -253,6 +253,9 @@ export async function updateSaleOrder(
   } catch (error: any) {
     if (connection) await connection.rollback();
     console.error('Error al actualizar Orden de Venta (MySQL):', error);
+     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+        return { success: false, message: 'Error: El cliente seleccionado no existe o un artículo es inválido.', errors: { customerId: ['Cliente inválido.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al actualizar Orden de Venta.',
@@ -279,10 +282,7 @@ export async function deleteSaleOrder(
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // TODO: Antes de eliminar, considerar si el stock debe ser reversado si la orden ya lo había descontado.
-    // Esto depende de la lógica de negocio (ej. si una orden 'Enviada' se elimina, ¿se repone el stock?).
-    // Por simplicidad, aquí solo eliminamos.
-
+    // TODO: Antes de eliminar, considerar si el stock debe ser reversado.
     await connection.query('DELETE FROM sale_order_items WHERE sale_order_id = ?', [soId]);
     const [result] = await connection.query<ResultSetHeader>(
       'DELETE FROM sale_orders WHERE id = ?',
@@ -291,7 +291,7 @@ export async function deleteSaleOrder(
     await connection.commit();
 
     if (result.affectedRows > 0) {
-        revalidatePath('/sales');
+        revalidatePath('/sales', 'layout');
         return {
           success: true,
           message: 'Orden de Venta eliminada exitosamente.',
@@ -312,43 +312,45 @@ export async function deleteSaleOrder(
   }
 }
 
-
-export interface SaleOrderWithItems extends SaleOrderFormInput {
-  id: string;
-  invoiceNumber: string;
-  totalAmount: number;
-  items: (SaleOrderItemFormInput & { itemName?: string; itemSku?: string })[];
-}
-
-
-export async function getSaleOrders(): Promise<(Omit<SaleOrderFormInput, 'items'> & {id: string; invoiceNumber: string; totalAmount: number})[]> {
+export async function getSaleOrders(): Promise<(Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string;})[]> {
   if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
+    console.error('Error: Pool de conexiones no disponible en getSaleOrders.');
     return [];
   }
   try {
+    // TODO: SQL - LEFT JOIN con tabla de contactos (clientes) para obtener el nombre del cliente
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, invoiceNumber, customer, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM sale_orders ORDER BY date DESC, id DESC'
+      `SELECT so.id, so.invoiceNumber, so.customer as customerId, c.name as customerName, DATE_FORMAT(so.date, "%Y-%m-%d") as date, so.totalAmount, so.status 
+       FROM sale_orders so
+       LEFT JOIN contacts c ON so.customer = c.id
+       ORDER BY so.date DESC, so.id DESC`
     );
     return rows.map(row => ({
         id: row.id.toString(),
         invoiceNumber: row.invoiceNumber,
-        customer: row.customer,
+        customerId: row.customerId, // El ID del cliente
+        customerName: row.customerName, // El nombre del cliente
         date: row.date,
         totalAmount: parseFloat(row.totalAmount),
         status: row.status
-    })) as (Omit<SaleOrderFormInput, 'items'> & {id: string; invoiceNumber: string; totalAmount: number})[];
+    })) as (Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string;})[];
   } catch (error) {
     console.error('Error al obtener Órdenes de Venta (MySQL):', error);
     return [];
   }
 }
 
-export async function getSaleOrderById(id: string): Promise<SaleOrderWithItems | null> {
-    if (!pool) return null;
+export async function getSaleOrderById(id: string): Promise<SaleOrderWithDetails | null> {
+    if (!pool) {
+       console.error('Error: Pool de conexiones no disponible en getSaleOrderById.');
+      return null;
+    }
     try {
-        const [orderRows] = await pool.query<RowDataPacket[]>(
-            'SELECT id, invoiceNumber, customer, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM sale_orders WHERE id = ?',
+        const [orderRows] = await pool.query<RowDataPacket[]>(`
+            SELECT so.id, so.invoiceNumber, so.customer as customerId, c.name as customerName, DATE_FORMAT(so.date, "%Y-%m-%d") as date, so.totalAmount, so.status 
+            FROM sale_orders so
+            LEFT JOIN contacts c ON so.customer = c.id
+            WHERE so.id = ?`,
             [id]
         );
         if (orderRows.length === 0) return null;
@@ -364,7 +366,8 @@ export async function getSaleOrderById(id: string): Promise<SaleOrderWithItems |
         return {
             id: orderData.id.toString(),
             invoiceNumber: orderData.invoiceNumber,
-            customer: orderData.customer,
+            customerId: orderData.customerId.toString(),
+            customerName: orderData.customerName,
             date: orderData.date,
             totalAmount: parseFloat(orderData.totalAmount),
             status: orderData.status,
@@ -375,7 +378,7 @@ export async function getSaleOrderById(id: string): Promise<SaleOrderWithItems |
                 itemName: item.itemName,
                 itemSku: item.itemSku
             }))
-        } as SaleOrderWithItems;
+        } as SaleOrderWithDetails; // Asegúrate que este tipo esté definido correctamente
     } catch (error) {
         console.error(`Error al obtener orden de venta ${id} con items:`, error);
         return null;
@@ -389,6 +392,7 @@ export async function getSalesLastMonthValue(): Promise<number> {
     return 0;
   }
   try {
+    // TODO: SQL - Asegúrate de que la tabla 'sale_orders' tenga una columna 'date' y 'totalAmount'.
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT SUM(totalAmount) as total FROM sale_orders WHERE status = 'Pagada' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
@@ -401,3 +405,5 @@ export async function getSalesLastMonthValue(): Promise<number> {
     return 0;
   }
 }
+
+    

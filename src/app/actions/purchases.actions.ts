@@ -3,36 +3,47 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { pool } from '@/lib/db';
+import { pool } from '../../lib/db'; // Ajustado a ruta relativa
 import type { Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
-import { PurchaseOrderSchema, type PurchaseOrderItemFormInput } from '@/app/schemas/purchases.schemas';
-import { adjustStock } from './inventory.actions'; // Para ajustar stock
+import { PurchaseOrderSchema, type PurchaseOrderItemFormInput } from '../schemas/purchases.schemas';
+// import { adjustStock } from './inventory.actions'; // Para ajustar stock
 
 export type PurchaseOrderFormInput = z.infer<typeof PurchaseOrderSchema>;
 
+// Tipo para la respuesta de la acción, incluyendo el ID y los campos generados
 export interface PurchaseOrderActionResponse {
   success: boolean;
   message: string;
   errors?: {
-    // poNumber?: string[]; // Ya no se valida aquí
-    vendor?: string[];
+    vendorId?: string[];
     date?: string[];
-    totalAmount?: string[]; // Se calculará
     status?: string[];
-    items?: string[]; // Para errores a nivel de array de items
+    items?: string[];
     general?: string[];
     itemErrors?: { index: number, field: string, message: string }[];
   };
   purchaseOrder?: PurchaseOrderFormInput & { id: string; poNumber: string; totalAmount: number };
 }
 
+// Tipo para representar la orden de compra completa con sus items y nombre del proveedor
+export interface PurchaseOrderWithDetails extends Omit<PurchaseOrderFormInput, 'vendorId'> {
+  id: string;
+  poNumber: string;
+  totalAmount: number;
+  vendorId: string;
+  vendorName?: string; // Nombre del proveedor
+  items: (PurchaseOrderItemFormInput & { itemName?: string; itemSku?: string })[];
+}
+
+
+// TODO: SQL - CREATE TABLE purchase_orders (id INT AUTO_INCREMENT PRIMARY KEY, poNumber VARCHAR(255) NOT NULL UNIQUE, vendor_id INT, date DATE NOT NULL, totalAmount DECIMAL(10, 2) NOT NULL, status ENUM('Borrador', 'Confirmada', 'Enviada', 'Recibida', 'Cancelada') NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, FOREIGN KEY (vendor_id) REFERENCES contacts(id));
+// TODO: SQL - CREATE TABLE purchase_order_items (id INT AUTO_INCREMENT PRIMARY KEY, purchase_order_id INT NOT NULL, inventory_item_id INT NOT NULL, quantity INT NOT NULL, unit_price DECIMAL(10, 2) NOT NULL, total_item_price DECIMAL(10,2) NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE, FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id));
+
 async function generatePoNumber(connection: Connection, insertId: number): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  // Podríamos usar el ID de la inserción para asegurar unicidad junto con la fecha.
-  // O una secuencia más robusta si es necesario, pero para este ejemplo el ID es suficiente.
-  return `OP-${year}${month}-${insertId}`;
+  return `OP-${year}${month}-${insertId.toString().padStart(4, '0')}`;
 }
 
 export async function addPurchaseOrder(
@@ -53,7 +64,7 @@ export async function addPurchaseOrder(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { vendor, date, status, items } = validatedFields.data;
+  const { vendorId, date, status, items } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
@@ -62,10 +73,11 @@ export async function addPurchaseOrder(
 
     const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
 
-    // Insertar la orden de compra principal (sin poNumber inicialmente)
+    // Asumimos que la columna 'vendor' ahora almacena el vendorId (como string si la columna es VARCHAR)
+    // Idealmente, esta columna se llamaría vendor_id y sería INT FK a contacts.id
     const [orderResult] = await connection.query<ResultSetHeader>(
       'INSERT INTO purchase_orders (vendor, date, totalAmount, status) VALUES (?, ?, ?, ?)',
-      [vendor, date, totalAmount, status]
+      [vendorId, date, totalAmount, status]
     );
     const purchaseOrderId = orderResult.insertId;
 
@@ -74,14 +86,12 @@ export async function addPurchaseOrder(
       return { success: false, message: 'No se pudo crear la cabecera de la orden de compra.' };
     }
 
-    // Generar y actualizar el poNumber
     const poNumber = await generatePoNumber(connection, purchaseOrderId);
     await connection.query(
       'UPDATE purchase_orders SET poNumber = ? WHERE id = ?',
       [poNumber, purchaseOrderId]
     );
 
-    // Insertar los items de la orden de compra
     for (const item of items) {
       const totalItemPrice = item.quantity * item.unitPrice;
       await connection.query<ResultSetHeader>(
@@ -92,7 +102,7 @@ export async function addPurchaseOrder(
 
     await connection.commit();
 
-    revalidatePath('/purchases');
+    revalidatePath('/purchases', 'layout');
     return {
       success: true,
       message: 'Orden de Compra añadida exitosamente.',
@@ -102,9 +112,13 @@ export async function addPurchaseOrder(
   } catch (error: any) {
     if (connection) await connection.rollback();
     console.error('Error al añadir Orden de Compra (MySQL):', error);
-    // ER_NO_REFERENCED_ROW_2: Error de FK si inventory_item_id no existe.
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-      return { success: false, message: 'Error: Uno o más artículos de inventario seleccionados no existen.', errors: { items: ['Artículo de inventario inválido.'] } };
+      if (error.message.includes('fk_poi_inventory_item')) {
+        return { success: false, message: 'Error: Uno o más artículos de inventario seleccionados no existen.', errors: { items: ['Artículo de inventario inválido.'] } };
+      }
+      if (error.message.includes('purchase_orders_ibfk_1') || error.message.includes('fk_po_vendor')) { // Ajusta el nombre del FK si es diferente
+         return { success: false, message: 'Error: El proveedor seleccionado no existe.', errors: { vendorId: ['Proveedor inválido.'] } };
+      }
     }
     return {
       success: false,
@@ -117,20 +131,13 @@ export async function addPurchaseOrder(
 }
 
 export async function updatePurchaseOrder(
-  data: PurchaseOrderFormInput & { id: string; poNumber?: string; totalAmount?: number} // poNumber y totalAmount no se editan directamente
+  data: PurchaseOrderFormInput & { id: string; poNumber?: string; totalAmount?: number}
 ): Promise<PurchaseOrderActionResponse> {
   if (!data.id) {
     return { success: false, message: 'ID de Orden de Compra requerido para actualizar.' };
   }
-  // Para la actualización, solo permitimos cambiar estado, proveedor, fecha.
-  // La edición de items es más compleja y se omite por simplicidad en esta fase.
-  // El usuario podría tener que cancelar y crear una nueva si los items cambian.
-  const validatedFields = PurchaseOrderSchema.omit({ items: true, poNumber: true, totalAmount: true }).extend({
-      status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada"]), // Mantener status
-      vendor: z.string().min(1),
-      date: z.string().min(1)
-  }).safeParse(data);
-
+  
+  const validatedFields = PurchaseOrderSchema.omit({ items: true }).safeParse(data);
 
   if (!validatedFields.success) {
     return {
@@ -146,14 +153,13 @@ export async function updatePurchaseOrder(
   }
 
   const { id } = data;
-  const { vendor, date, status } = validatedFields.data;
+  const { vendorId, date, status } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Obtener estado actual de la orden
     const [currentOrderRows] = await connection.query<RowDataPacket[]>(
       'SELECT status, poNumber, totalAmount FROM purchase_orders WHERE id = ?',
       [id]
@@ -165,22 +171,18 @@ export async function updatePurchaseOrder(
     const currentOrder = currentOrderRows[0];
     const oldStatus = currentOrder.status;
 
-    // SQL - Actualizar campos principales de la orden de compra
+    // Asumimos que la columna 'vendor' ahora almacena el vendorId
     const [result] = await connection.query<ResultSetHeader>(
       'UPDATE purchase_orders SET vendor = ?, date = ?, status = ? WHERE id = ?',
-      [vendor, date, status, id]
+      [vendorId, date, status, id]
     );
 
-    // Lógica de ajuste de stock si el estado cambia a 'Recibida'
     if (status === 'Recibida' && oldStatus !== 'Recibida') {
       const [itemRows] = await connection.query<RowDataPacket[]>(
         'SELECT inventory_item_id, quantity FROM purchase_order_items WHERE purchase_order_id = ?',
         [id]
       );
       for (const item of itemRows) {
-        // Usamos la acción adjustStock para mantener la lógica centralizada si es posible,
-        // o replicamos la lógica aquí si adjustStock es demasiado simple.
-        // Por ahora, llamaremos a una función de ajuste directo para evitar dependencias circulares complejas.
         await connection.query(
           'UPDATE inventory_items SET currentStock = currentStock + ? WHERE id = ?',
           [item.quantity, item.inventory_item_id]
@@ -194,11 +196,10 @@ export async function updatePurchaseOrder(
     await connection.commit();
 
     if (result.affectedRows > 0) {
-      revalidatePath('/purchases');
+      revalidatePath('/purchases', 'layout');
       return {
         success: true,
         message: 'Orden de Compra actualizada exitosamente.',
-        // Devolver la orden con los datos actualizados (incluyendo poNumber y totalAmount originales ya que no se editan aquí)
         purchaseOrder: { ...data, ...validatedFields.data, poNumber: currentOrder.poNumber, totalAmount: parseFloat(currentOrder.totalAmount) },
       };
     } else {
@@ -207,6 +208,9 @@ export async function updatePurchaseOrder(
   } catch (error: any) {
     if (connection) await connection.rollback();
     console.error('Error al actualizar Orden de Compra (MySQL):', error);
+     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+        return { success: false, message: 'Error: El proveedor seleccionado no existe o un artículo es inválido.', errors: { vendorId: ['Proveedor inválido.'] } };
+    }
     return {
       success: false,
       message: 'Error del servidor al actualizar Orden de Compra.',
@@ -233,20 +237,16 @@ export async function deletePurchaseOrder(
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Eliminar primero los items de la orden (debido a ON DELETE CASCADE, esto podría ser automático si la FK está configurada)
-    // pero es más explícito hacerlo aquí.
+    // Primero eliminar los items (CASCADE debería hacerlo, pero es más explícito)
     await connection.query('DELETE FROM purchase_order_items WHERE purchase_order_id = ?', [poId]);
-
-    // Luego eliminar la orden principal
     const [result] = await connection.query<ResultSetHeader>(
       'DELETE FROM purchase_orders WHERE id = ?',
       [poId]
     );
-
     await connection.commit();
 
     if (result.affectedRows > 0) {
-        revalidatePath('/purchases');
+        revalidatePath('/purchases', 'layout');
         return {
           success: true,
           message: 'Orden de Compra eliminada exitosamente.',
@@ -267,33 +267,29 @@ export async function deletePurchaseOrder(
   }
 }
 
-// Tipo para representar la orden de compra completa con sus items
-export interface PurchaseOrderWithItems extends PurchaseOrderFormInput {
-  id: string;
-  poNumber: string;
-  totalAmount: number;
-  items: (PurchaseOrderItemFormInput & { itemName?: string; itemSku?: string })[];
-}
 
-
-export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput, 'items'> & {id: string; poNumber: string; totalAmount: number})[]> {
+export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string})[]> {
   if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
+    console.error('Error: Pool de conexiones no disponible en getPurchaseOrders.');
     return [];
   }
   try {
+    // TODO: SQL - LEFT JOIN con tabla de contactos (proveedores) para obtener el nombre del proveedor
     const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, poNumber, vendor, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM purchase_orders ORDER BY date DESC, id DESC'
+        `SELECT po.id, po.poNumber, po.vendor as vendorId, c.name as vendorName, DATE_FORMAT(po.date, "%Y-%m-%d") as date, po.totalAmount, po.status 
+         FROM purchase_orders po
+         LEFT JOIN contacts c ON po.vendor = c.id 
+         ORDER BY po.date DESC, po.id DESC`
     );
     return rows.map(row => ({
         id: row.id.toString(),
         poNumber: row.poNumber,
-        vendor: row.vendor,
+        vendorId: row.vendorId, // El ID del proveedor
+        vendorName: row.vendorName, // El nombre del proveedor
         date: row.date,
         totalAmount: parseFloat(row.totalAmount),
         status: row.status,
-        // items se cargará por separado o en una función getPurchaseOrderById
-    })) as (Omit<PurchaseOrderFormInput, 'items'> & {id: string; poNumber: string; totalAmount: number})[];
+    })) as (Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string})[];
   } catch (error) {
     console.error('Error al obtener Órdenes de Compra (MySQL):', error);
     return [];
@@ -301,11 +297,17 @@ export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput,
 }
 
 
-export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWithItems | null> {
-    if (!pool) return null;
+export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWithDetails | null> {
+    if (!pool) {
+      console.error('Error: Pool de conexiones no disponible en getPurchaseOrderById.');
+      return null;
+    }
     try {
-        const [orderRows] = await pool.query<RowDataPacket[]>(
-            'SELECT id, poNumber, vendor, DATE_FORMAT(date, "%Y-%m-%d") as date, totalAmount, status FROM purchase_orders WHERE id = ?',
+        const [orderRows] = await pool.query<RowDataPacket[]>(`
+            SELECT po.id, po.poNumber, po.vendor as vendorId, c.name as vendorName, DATE_FORMAT(po.date, "%Y-%m-%d") as date, po.totalAmount, po.status 
+            FROM purchase_orders po
+            LEFT JOIN contacts c ON po.vendor = c.id
+            WHERE po.id = ?`,
             [id]
         );
         if (orderRows.length === 0) return null;
@@ -321,7 +323,8 @@ export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWit
         return {
             id: orderData.id.toString(),
             poNumber: orderData.poNumber,
-            vendor: orderData.vendor,
+            vendorId: orderData.vendorId.toString(), // Almacena el ID del proveedor
+            vendorName: orderData.vendorName, // Nombre del proveedor
             date: orderData.date,
             totalAmount: parseFloat(orderData.totalAmount),
             status: orderData.status,
@@ -332,13 +335,12 @@ export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWit
                 itemName: item.itemName,
                 itemSku: item.itemSku
             }))
-        } as PurchaseOrderWithItems;
+        } as PurchaseOrderWithDetails; // Asegúrate que este tipo es correcto y está definido
     } catch (error) {
         console.error(`Error al obtener orden de compra ${id} con items:`, error);
         return null;
     }
 }
-
 
 export async function getPurchasesLastMonthValue(): Promise<number> {
   if (!pool) {
@@ -346,6 +348,7 @@ export async function getPurchasesLastMonthValue(): Promise<number> {
     return 0;
   }
   try {
+    // TODO: SQL - Asegúrate de que la tabla 'purchase_orders' tenga una columna 'date' y 'totalAmount'.
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT SUM(totalAmount) as total FROM purchase_orders WHERE status = 'Recibida' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
@@ -358,3 +361,5 @@ export async function getPurchasesLastMonthValue(): Promise<number> {
     return 0;
   }
 }
+
+    

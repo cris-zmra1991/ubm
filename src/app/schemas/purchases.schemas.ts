@@ -11,8 +11,8 @@ export type PurchaseOrderItemFormInput = z.infer<typeof PurchaseOrderItemSchema>
 
 export const PurchaseOrderSchema = z.object({
   id: z.string().optional(),
-  // poNumber ya no se ingresa, se genera automáticamente
-  vendor: z.string().min(1, 'El proveedor es requerido.'),
+  // poNumber se genera automáticamente
+  vendorId: z.string().min(1, 'El proveedor es requerido.'), // Cambiado de vendor a vendorId
   date: z.string().min(1, 'La fecha es requerida.'),
   // totalAmount se calculará a partir de los items
   status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada"], {
@@ -20,3 +20,6 @@ export const PurchaseOrderSchema = z.object({
   }),
   items: z.array(PurchaseOrderItemSchema).min(1, "Debe añadir al menos un artículo a la orden."),
 });
+export type PurchaseOrderFormInput = z.infer<typeof PurchaseOrderSchema>;
+
+    

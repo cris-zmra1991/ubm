@@ -3,9 +3,9 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { pool } from '@/lib/db';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { ContactSchema } from '@/app/schemas/contacts.schemas';
+import { pool } from '../../lib/db'; // Ajustado a ruta relativa
+import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { ContactSchema } from '../schemas/contacts.schemas';
 
 
 export type ContactFormInput = z.infer<typeof ContactSchema>;
@@ -46,6 +46,8 @@ export async function addContact(
   const { name, email, phone, type, company } = validatedFields.data;
 
   try {
+    // TODO: SQL - CREATE TABLE contacts (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL, phone VARCHAR(50) NOT NULL, type ENUM('Cliente', 'Proveedor', 'Prospecto') NOT NULL, company VARCHAR(255), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
+    // Nota: El constraint UNIQUE en email se eliminó de la base de datos según solicitud.
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO contacts (name, email, phone, type, company) VALUES (?, ?, ?, ?, ?)',
       [name, email, phone, type, company || null]
@@ -64,10 +66,6 @@ export async function addContact(
     }
   } catch (error: any) {
     console.error('Error al añadir contacto (MySQL):', error);
-    // Se elimina la verificación específica de ER_DUP_ENTRY para el email,
-    // ya que la restricción UNIQUE en la base de datos se habrá eliminado.
-    // Cualquier otro error de duplicado (ej. si hubiera un ID manual duplicado,
-    // aunque aquí es AUTO_INCREMENT) o error general se capturará abajo.
     return {
       success: false,
       message: 'Error del servidor al añadir contacto.',
@@ -100,6 +98,7 @@ export async function updateContact(
   const { id, name, email, phone, type, company } = validatedFields.data;
 
   try {
+    // TODO: SQL - UPDATE contacts SET ... WHERE id = ?
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE contacts SET name = ?, email = ?, phone = ?, type = ?, company = ? WHERE id = ?',
       [name, email, phone, type, company || null, id]
@@ -117,7 +116,6 @@ export async function updateContact(
     }
   } catch (error: any) {
     console.error('Error al actualizar contacto (MySQL):', error);
-    // Se elimina la verificación específica de ER_DUP_ENTRY para el email
     return {
       success: false,
       message: 'Error del servidor al actualizar contacto.',
@@ -139,6 +137,7 @@ export async function deleteContact(
   }
 
   try {
+    // TODO: SQL - DELETE FROM contacts WHERE id = ?
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM contacts WHERE id = ?',
       [contactId]
@@ -163,22 +162,32 @@ export async function deleteContact(
   }
 }
 
-export async function getContacts(): Promise<ContactFormInput[]> {
+export async function getContacts(filter?: { type?: 'Cliente' | 'Proveedor' | 'Prospecto' }): Promise<(ContactFormInput & { id: string })[]> {
   if (!pool) {
     console.error('Error: Connection pool not available in getContacts.');
     return [];
   }
   try {
-    const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, email, phone, type, company FROM contacts ORDER BY name ASC');
+    let query = 'SELECT id, name, email, phone, type, company FROM contacts';
+    const queryParams: string[] = [];
+
+    if (filter?.type) {
+      query += ' WHERE type = ?';
+      queryParams.push(filter.type);
+    }
+    query += ' ORDER BY name ASC';
+
+    const [rows] = await pool.query<RowDataPacket[]>(query, queryParams);
     return rows.map(row => ({
         ...row,
         id: row.id.toString(),
-    })) as ContactFormInput[];
+    })) as (ContactFormInput & { id: string })[];
   } catch (error) {
     console.error('Error al obtener contactos (MySQL):', error);
     return [];
   }
 }
+
 
 export async function getNewClientsThisMonthCount(): Promise<number> {
   if (!pool) {
@@ -186,7 +195,7 @@ export async function getNewClientsThisMonthCount(): Promise<number> {
     return 0;
   }
   try {
-    // SQL - Obtener contador de nuevos clientes de este mes (ej. últimos 30 días)
+    // TODO: SQL - Asegúrate de que la tabla 'contacts' tenga una columna 'created_at' de tipo TIMESTAMP o DATE.
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT COUNT(id) as count FROM contacts WHERE type = 'Cliente' AND created_at >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
@@ -199,3 +208,5 @@ export async function getNewClientsThisMonthCount(): Promise<number> {
     return 0;
   }
 }
+
+    

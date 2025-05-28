@@ -10,8 +10,8 @@ export type SaleOrderItemFormInput = z.infer<typeof SaleOrderItemSchema>;
 
 export const SaleOrderSchema = z.object({
   id: z.string().optional(),
-  // invoiceNumber ya no se ingresa, se genera automáticamente
-  customer: z.string().min(1, 'El cliente es requerido.'),
+  // invoiceNumber se genera automáticamente
+  customerId: z.string().min(1, 'El cliente es requerido.'), // Cambiado de customer a customerId
   date: z.string().min(1, 'La fecha es requerida.'),
   // totalAmount se calculará a partir de los items
   status: z.enum(["Borrador", "Confirmada", "Enviada", "Entregada", "Pagada", "Cancelada"], {
@@ -19,3 +19,6 @@ export const SaleOrderSchema = z.object({
   }),
   items: z.array(SaleOrderItemSchema).min(1, "Debe añadir al menos un artículo a la orden."),
 });
+export type SaleOrderFormInput = z.infer<typeof SaleOrderSchema>;
+
+    
