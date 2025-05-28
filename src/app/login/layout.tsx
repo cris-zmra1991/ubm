@@ -26,7 +26,7 @@ export default function LoginLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-       <body 
+      <body 
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
         suppressHydrationWarning={true}
       >
