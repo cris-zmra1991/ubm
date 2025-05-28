@@ -2,22 +2,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Settings as SettingsIcon, PlusCircle, Users, Building, SlidersHorizontal, Edit, Trash2, ShieldCheck, KeyRound, Bell, UserCog } from "lucide-react";
+import { Settings as SettingsIcon, PlusCircle, Users, Building, Edit, Trash2, ShieldCheck, Bell, UserCog } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  CompanyInfoSchema, SecuritySettingsSchema, NotificationSettingsSchema, UserSchema as AdminUserSchema // Renombrar para evitar conflicto
+  CompanyInfoSchema, SecuritySettingsSchema, NotificationSettingsSchema, UserSchema as AdminUserSchema
 } from "@/app/schemas/admin.schemas";
 import {
   type CompanyInfoFormInput,
@@ -32,8 +32,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 
-interface AppUser extends Omit<UserFormInput, 'role_id'> {
+interface AppUser extends Omit<UserFormInput, 'role_id' | 'password'> {
   id: string;
+  name: string;
   role_id?: number;
   role_name?: string;
   lastLogin?: string;
@@ -90,6 +91,7 @@ function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: Compa
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <SelectTrigger id="timezone"><SelectValue placeholder="Seleccionar zona horaria" /></SelectTrigger>
                     <SelectContent>
+                        <SelectItem value="Europe/Madrid">Europa/Madrid (GMT+2)</SelectItem>
                         <SelectItem value="Europe/Paris">Europa/París (GMT+2)</SelectItem>
                         <SelectItem value="America/New_York">América/Nueva York (EST)</SelectItem>
                         <SelectItem value="Asia/Tokyo">Asia/Tokio (JST)</SelectItem>
@@ -106,11 +108,12 @@ function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: Compa
 
 function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, roles: Role[], onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
     const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<UserFormInput>({
-        resolver: zodResolver(AdminUserSchema.omit(user && !user.password ? { password: true} : {})),
-        defaultValues: user ? { ...user, password: '', role_id: user.role_id } : { username: '', email: '', role_id: undefined, status: 'Activo', password: ''},
+        resolver: zodResolver(AdminUserSchema.omit(user && !(user as any).password ? { password: true} : {})), // Cast to any to access password for defaultValues
+        defaultValues: user ? { ...user, password: '', role_id: user.role_id, name: user.name } : { name: '', username: '', email: '', role_id: undefined, status: 'Activo', password: ''},
     });
     return (
         <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
+            <div><Label htmlFor="name">Nombre Completo</Label><Input id="name" {...register("name")} />{errors.name && <p className="text-sm text-destructive mt-1">{errors.name.message}</p>}</div>
             <div><Label htmlFor="username">Nombre de Usuario</Label><Input id="username" {...register("username")} />{errors.username && <p className="text-sm text-destructive mt-1">{errors.username.message}</p>}</div>
             <div><Label htmlFor="email">Correo Electrónico</Label><Input id="email" type="email" {...register("email")} />{errors.email && <p className="text-sm text-destructive mt-1">{errors.email.message}</p>}</div>
             <div><Label htmlFor="password">{user ? "Nueva Contraseña (opcional)" : "Contraseña"}</Label><Input id="password" type="password" {...register("password")} placeholder={user ? "Dejar en blanco para no cambiar" : ""}/>{errors.password && <p className="text-sm text-destructive mt-1">{errors.password.message}</p>}</div>
@@ -163,7 +166,7 @@ function SecuritySettingsForm({ defaultValues, onFormSubmit }: { defaultValues: 
       </div>
       <div className="space-y-1.5">
           <Label htmlFor="sessionTimeout">Tiempo de Sesión Agotado (minutos)</Label>
-          <Input id="sessionTimeout" type="number" {...register("sessionTimeout")} />
+          <Input id="sessionTimeout" type="number" {...register("sessionTimeout", { valueAsNumber: true })} />
           {errors.sessionTimeout && <p className="text-sm text-destructive mt-1">{errors.sessionTimeout.message}</p>}
       </div>
       <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Guardando..." : "Guardar Configuración de Seguridad"}</Button>
@@ -217,7 +220,7 @@ export default function AdminPage() {
         getNotificationSettings()
       ]);
       if (companyData) setCompanyInfo(companyData);
-      setUsers(usersData as AppUser[]); // Cast as AppUser which includes role_name
+      setUsers(usersData.map(u => ({...u, password: ''})) as AppUser[]); // Ensure AppUser structure
       setRoles(rolesData);
       if (securityData) setSecuritySettings(securityData);
       if (notificationData) setNotificationSettings(notificationData);
@@ -267,7 +270,7 @@ export default function AdminPage() {
   };
 
 
-  if (!companyInfo || !securitySettings || !notificationSettings || (users.length > 0 && roles.length === 0) ) {
+  if (!companyInfo || !securitySettings || !notificationSettings || !roles ) { // Removed users.length > 0 check as roles should always load
     return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>;
   }
 
@@ -293,7 +296,6 @@ export default function AdminPage() {
               <TabsTrigger value="roles"><UserCog className="mr-2 h-4 w-4" />Roles y Permisos</TabsTrigger>
               <TabsTrigger value="security"><ShieldCheck className="mr-2 h-4 w-4" />Seguridad</TabsTrigger>
               <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" />Notificaciones</TabsTrigger>
-              {/* <TabsTrigger value="integrations"><SlidersHorizontal className="mr-2 h-4 w-4" />Integraciones</TabsTrigger> */}
             </TabsList>
 
             <TabsContent value="general" className="space-y-6">
@@ -310,11 +312,19 @@ export default function AdminPage() {
               </div>
               <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Nombre de Usuario</TableHead><TableHead>Correo Electrónico</TableHead><TableHead>Rol</TableHead><TableHead>Estado</TableHead><TableHead>Último Acceso</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow>
+                    <TableHead>Nombre Completo</TableHead>
+                    <TableHead>Nombre de Usuario</TableHead>
+                    <TableHead>Correo Electrónico</TableHead>
+                    <TableHead>Rol</TableHead><TableHead>Estado</TableHead>
+                    <TableHead>Último Acceso</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow></TableHeader>
                   <TableBody>
                     {users.map(user => (
                       <TableRow key={user.id}>
-                        <TableCell className="font-medium">{user.username}</TableCell>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell>{user.username}</TableCell>
                         <TableCell>{user.email}</TableCell>
                         <TableCell>{user.role_name || "Sin rol"}</TableCell>
                         <TableCell><Badge variant={user.status === "Activo" ? "default" : "outline"} className={user.status === "Activo" ? "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30" : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30"}>{user.status}</Badge></TableCell>
@@ -328,7 +338,7 @@ export default function AdminPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                     {users.length === 0 && <TableRow><TableCell colSpan={6} className="text-center">No hay usuarios registrados.</TableCell></TableRow>}
+                     {users.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No hay usuarios registrados.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
@@ -360,19 +370,6 @@ export default function AdminPage() {
                     <CardContent><NotificationSettingsForm defaultValues={notificationSettings} onFormSubmit={handleNotificationSettingsSubmit} /></CardContent>
                 </Card>
             </TabsContent>
-
-            {/* <TabsContent value="integrations">
-                <Card>
-                    <CardHeader><CardTitle>Integraciones y API</CardTitle><CardDescription>Conéctate con otros servicios y gestiona claves API.</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
-                            <KeyRound className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                            <p className="text-muted-foreground">La gestión de claves API e integraciones de terceros aparecerá aquí.</p>
-                             <Button variant="secondary" className="mt-4">Gestionar Claves API</Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            </TabsContent> */}
           </Tabs>
         </CardContent>
       </Card>
@@ -387,5 +384,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
-    

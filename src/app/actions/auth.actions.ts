@@ -3,10 +3,10 @@
 
 import { z } from 'zod';
 import { redirect } from 'next/navigation';
-import { pool } from '@/lib/db'; 
+import { pool } from '@/lib/db';
 import type { RowDataPacket } from 'mysql2';
 import bcrypt from 'bcryptjs';
-import { createSession, deleteSession } from '@/lib/session'; // Reverted to alias path
+import { createSession, deleteSession } from '@/lib/session';
 import { LoginSchema } from '@/app/schemas/auth.schemas';
 
 export interface LoginFormState {
@@ -49,9 +49,9 @@ export async function handleLogin(
 
   try {
     console.log(`Intentando autenticar para el usuario: ${username}`);
-    // TODO: SQL - Actualizar la tabla 'users' para que coincida con la estructura de la aplicación (ej. role_id, status)
+    // SQL - Obtener usuario, incluyendo nombre
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, username, password_hash, status, role_id FROM users WHERE username = ?',
+      'SELECT id, username, name, password_hash, status, role_id FROM users WHERE username = ?',
       [username]
     );
 
@@ -75,8 +75,7 @@ export async function handleLogin(
       };
     }
 
-    // TODO: SQL - Implementar bcrypt para comparar contraseñas hasheadas
-    // const passwordMatches = await bcrypt.compare(password, user.password_hash);
+    // SQL - Comparar contraseña hasheada
     const passwordMatches = user.password_hash ? bcrypt.compareSync(password, user.password_hash) : false;
 
 
@@ -88,11 +87,12 @@ export async function handleLogin(
       } catch (updateError) {
         console.error('Error al actualizar lastLogin:', updateError);
       }
-      
+
       const sessionPayload = {
         userId: user.id.toString(),
         username: user.username,
-        roleId: user.role_id, // Asegúrate que esto venga de la DB
+        name: user.name, // Añadido el nombre del usuario a la sesión
+        roleId: user.role_id,
       };
       await createSession(sessionPayload);
 
