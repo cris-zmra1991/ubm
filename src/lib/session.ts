@@ -18,7 +18,8 @@ export interface SessionPayload {
   userId: string;
   username: string;
   name: string;
-  roleId: number | null; // Permitir null si el rol no está asignado
+  roleId: number | null;
+  roleName: string; // Añadido para RBAC
   expires?: Date;
 }
 

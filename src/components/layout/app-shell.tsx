@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { navLinks, type NavLink } from './nav-links';
+import { navLinks as allNavLinks, type NavLink } from './nav-links';
 import { Logo } from '@/components/icons/logo';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -33,35 +33,64 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, LogOut, UserCircle, Settings as SettingsIcon } from 'lucide-react';
 import { handleLogout } from '@/app/actions/auth.actions';
-import type { SessionPayload } from '@/lib/session'; // Import SessionPayload
+import type { SessionPayload } from '@/lib/session';
 
 interface AppShellProps {
   children: ReactNode;
-  session: SessionPayload | null; // Session prop
+  session: SessionPayload | null;
 }
+
+// Definición de patrones de acceso por rol
+const ROLE_ACCESS_PATTERNS: Record<string, RegExp[]> = {
+  'Default': [/^\/$/], // Rol por defecto si no hay uno específico o para errores
+  'Administrador': [/^\/.*$/], // Acceso total
+  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/],
+  'Gerente': [/^\/$/, /^\/sales(\/.*)?$/, /^\/purchases(\/.*)?$/, /^\/inventory(\/.*)?$/, /^\/contacts(\/.*)?$/],
+  'Almacenero': [/^\/$/, /^\/inventory(\/.*)?$/],
+  'Comercial': [/^\/$/, /^\/contacts(\/.*)?$/, /^\/sales(\/.*)?$/],
+};
 
 export function AppShell({ children, session }: AppShellProps) {
   const pathname = usePathname();
+  const isLoginPage = pathname === '/login';
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar_Internal navLinks={navLinks} pathname={pathname} session={session} />
+      {!isLoginPage && session && <Sidebar_Internal navLinks={allNavLinks} pathname={pathname} session={session} />}
       <div className="flex flex-col flex-1 overflow-hidden">
-        <AppHeader session={session} />
-        <main className="flex-1 overflow-y-auto bg-background">
-          <SidebarInset>
-            <div className="p-4 sm:p-6 lg:p-8">
-             {children}
-            </div>
-          </SidebarInset>
+        {!isLoginPage && session && <AppHeader session={session} />}
+        <main className={`flex-1 overflow-y-auto bg-background ${isLoginPage ? 'h-screen' : ''}`}>
+          {isLoginPage ? (
+            children // Renderiza solo el contenido de la página de login
+          ) : (
+            <SidebarInset>
+              <div className="p-4 sm:p-6 lg:p-8">
+               {children}
+              </div>
+            </SidebarInset>
+          )}
         </main>
       </div>
     </SidebarProvider>
   );
 }
 
-function Sidebar_Internal({ navLinks, pathname, session }: { navLinks: NavLink[]; pathname: string | null; session: SessionPayload | null }) {
+function Sidebar_Internal({ navLinks: allNavLinks, pathname, session }: { navLinks: NavLink[]; pathname: string | null; session: SessionPayload | null }) {
   const { open, state } = useSidebar();
+  const userRole = session?.roleName || 'Default';
+
+  const filteredNavLinks = useMemo(() => {
+    if (!session) return []; // No mostrar enlaces si no hay sesión (aunque middleware debería prevenir esto)
+    
+    const allowedPatterns = ROLE_ACCESS_PATTERNS[userRole] || ROLE_ACCESS_PATTERNS['Default'];
+    
+    return allNavLinks.filter(link => {
+      if (link.href === '/') return true; // El Dashboard siempre es visible para usuarios logueados
+      return allowedPatterns.some(pattern => pattern.test(link.href));
+    });
+  }, [allNavLinks, userRole, session]);
+
+
   return (
     <Sidebar collapsible="icon" side="left" variant="sidebar" className="border-r border-sidebar-border shadow-md">
       <SidebarHeader className="p-4 flex items-center justify-between">
@@ -73,7 +102,7 @@ function Sidebar_Internal({ navLinks, pathname, session }: { navLinks: NavLink[]
       <ScrollArea className="flex-1">
         <SidebarContent>
           <SidebarMenu>
-            {navLinks.map((link) => (
+            {filteredNavLinks.map((link) => (
               <SidebarMenuItem key={link.href}>
                 <SidebarMenuButton
                   asChild
@@ -91,7 +120,7 @@ function Sidebar_Internal({ navLinks, pathname, session }: { navLinks: NavLink[]
         </SidebarContent>
       </ScrollArea>
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        <UserMenu session={session} />
+        {session && <UserMenu session={session} />}
       </SidebarFooter>
     </Sidebar>
   );
@@ -105,7 +134,7 @@ function AppHeader({ session }: { session: SessionPayload | null }) {
       <div className="flex-1">
         {/* Placeholder for breadcrumbs or page title if needed */}
       </div>
-      <UserMenu session={session} />
+      {session && <UserMenu session={session} />}
     </header>
   );
 }
@@ -113,15 +142,19 @@ function AppHeader({ session }: { session: SessionPayload | null }) {
 
 function UserMenu({ session }: { session: SessionPayload | null }) {
   const { open, state, isMobile } = useSidebar();
-  const showInSidebar = !isMobile && (open || state === "expanded");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const userName = session?.name || 'Usuario';
-  const userInitials = session?.name ? session.name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase() : 'U';
+  if (!session) { // No renderizar nada si no hay sesión
+    return null;
+  }
+
+  const userName = session.name;
+  const userInitials = session.name ? session.name.split(' ').map(n => n[0]).join('').substring(0,2).toUpperCase() : 'U';
+  const showInSidebar = !isMobile && (open || state === "expanded");
 
 
   if (showInSidebar) {
@@ -140,7 +173,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
+          <DropdownMenuLabel>Mi Cuenta ({session.roleName})</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
@@ -175,7 +208,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>{userName}</DropdownMenuLabel>
+          <DropdownMenuLabel>{userName} ({session.roleName})</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
@@ -193,7 +226,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
                     <span>Cerrar Sesión</span>
                 </Button>
              </DropdownMenuItem>
-          </form>
+           </form>
         </DropdownMenuContent>
       </DropdownMenu>
     );
