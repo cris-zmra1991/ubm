@@ -24,16 +24,21 @@ export default function LoginLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Las etiquetas <html> y <body> son manejadas por el RootLayout o por Next.js
+  // Este layout específico para /login solo debe retornar su contenido directo.
   return (
-    <html lang="es" suppressHydrationWarning>
-      <body 
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-        suppressHydrationWarning={true}
-      >
-        {/* AppShell se omite intencionalmente aquí para una página de login limpia */}
-        {children}
-        <Toaster />
-      </body>
-    </html>
+    <>
+      {/* 
+        Las fuentes se aplican globalmente a través de RootLayout y globals.css.
+        Si necesitas estilos MUY específicos solo para el body de la página de login 
+        que no quieres en el resto de la app, podrías envolver {children} en un div 
+        con esas clases, pero usualmente no es necesario si tu globals.css y RootLayout 
+        manejan bien los estilos base.
+        Para este caso, las clases de fuentes y 'antialiased bg-background text-foreground'
+        se aplican desde el RootLayout.
+      */}
+      {children}
+      <Toaster />
+    </>
   );
 }
