@@ -21,6 +21,7 @@ import { AccountSchema, JournalEntrySchema } from "@/app/schemas/accounting.sche
 import {
   type AccountFormInput,
   type JournalEntryFormInput,
+  type AccountWithDetails,
   addAccount, updateAccount, deleteAccount, getAccounts,
   addJournalEntry, updateJournalEntry, deleteJournalEntry, getJournalEntries
 } from "@/app/actions/accounting.actions";
@@ -40,11 +41,11 @@ const chartConfig = {
   expenses: { label: "Gastos", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig
 
-// --- Account Form Component ---
-function AccountForm({ account, onFormSubmit, closeDialog }: { account?: AccountFormInput, onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
+
+function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: { account?: AccountFormInput, existingAccounts: AccountWithDetails[], onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<AccountFormInput>({
     resolver: zodResolver(AccountSchema),
-    defaultValues: account || { code: '', name: '', type: undefined, balance: 0 },
+    defaultValues: account || { code: '', name: '', type: undefined, balance: 0, parentAccountId: null },
   });
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
@@ -75,6 +76,21 @@ function AccountForm({ account, onFormSubmit, closeDialog }: { account?: Account
         {errors.type && <p className="text-sm text-destructive mt-1">{errors.type.message}</p>}
       </div>
       <div>
+        <Label htmlFor="parentAccountId">Cuenta Padre (Opcional)</Label>
+        <Controller name="parentAccountId" control={control} render={({ field }) => (
+          <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+            <SelectTrigger><SelectValue placeholder="Seleccionar cuenta padre..." /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Ninguna</SelectItem>
+              {existingAccounts
+                .filter(acc => acc.id !== account?.id) // No puede ser su propio padre
+                .map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )} />
+        {errors.parentAccountId && <p className="text-sm text-destructive mt-1">{errors.parentAccountId.message}</p>}
+      </div>
+      <div>
         <Label htmlFor="balance">Saldo Inicial (€)</Label>
         <Input id="balance" type="number" step="0.01" {...register("balance")} disabled={!!account} />
         {errors.balance && <p className="text-sm text-destructive mt-1">{errors.balance.message}</p>}
@@ -88,8 +104,7 @@ function AccountForm({ account, onFormSubmit, closeDialog }: { account?: Account
   );
 }
 
-// --- Journal Entry Form Component ---
-function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entry?: JournalEntryFormInput, accounts: AccountFormInput[], onFormSubmit: (data: JournalEntryFormInput) => Promise<void>, closeDialog: () => void }) {
+function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entry?: JournalEntryFormInput, accounts: AccountWithDetails[], onFormSubmit: (data: JournalEntryFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<JournalEntryFormInput>({
     resolver: zodResolver(JournalEntrySchema),
     defaultValues: entry || { date: new Date().toISOString().split('T')[0], entryNumber: '', description: '', debitAccountCode: '', creditAccountCode: '', amount: 0 },
@@ -150,12 +165,12 @@ function JournalEntryForm({ entry, accounts, onFormSubmit, closeDialog }: { entr
 
 
 export default function AccountingPage() {
-  const [chartOfAccounts, setChartOfAccounts] = useState<AccountFormInput[]>([]);
+  const [chartOfAccounts, setChartOfAccounts] = useState<AccountWithDetails[]>([]);
   const [journalEntries, setJournalEntries] = useState<JournalEntryFormInput[]>([]);
   const { toast } = useToast();
 
   const [isAccountDialogOpen, setIsAccountDialogOpen] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<AccountFormInput | undefined>(undefined);
+  const [editingAccount, setEditingAccount] = useState<AccountWithDetails | undefined>(undefined);
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
 
   const [isJournalEntryDialogOpen, setIsJournalEntryDialogOpen] = useState(false);
@@ -166,7 +181,7 @@ export default function AccountingPage() {
     const accountsData = await getAccounts();
     setChartOfAccounts(accountsData);
     const journalEntriesData = await getJournalEntries();
-    setJournalEntries(journalEntriesData);
+    setJournalEntries(journalEntriesData.map(entry => ({...entry, id: entry.id || Math.random().toString() }))); // Ensure ID for key prop
   };
 
   useEffect(() => {
@@ -194,16 +209,16 @@ export default function AccountingPage() {
     if(response.success) {
       refreshAccountingData();
     }
-    setDeletingAccountId(null); // Close dialog
+    setDeletingAccountId(null);
   };
 
   const handleJournalEntrySubmit = async (data: JournalEntryFormInput) => {
     const response = editingJournalEntry
-      ? await updateJournalEntry({ ...data, id: editingJournalEntry.id })
+      ? await updateJournalEntry({ ...data, id: editingJournalEntry.id! })
       : await addJournalEntry(data);
     if (response.success && response.data) {
       toast({ title: "Éxito", description: response.message });
-      refreshAccountingData(); // Also refresh accounts as balances might change
+      refreshAccountingData();
       setIsJournalEntryDialogOpen(false);
       setEditingJournalEntry(undefined);
     } else {
@@ -216,10 +231,43 @@ export default function AccountingPage() {
     const response = await deleteJournalEntry(deletingJournalEntryId);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
     if(response.success) {
-      refreshAccountingData(); // Also refresh accounts as balances might change
+      refreshAccountingData();
     }
-    setDeletingJournalEntryId(null); // Close dialog
+    setDeletingJournalEntryId(null);
   };
+
+  // Helper para renderizar cuentas jerárquicamente
+  const renderAccountsRows = (accountsToRender: AccountWithDetails[], level = 0): JSX.Element[] => {
+    let rows: JSX.Element[] = [];
+    for (const acc of accountsToRender) {
+      rows.push(
+        <TableRow key={acc.id}>
+          <TableCell style={{ paddingLeft: `${level * 20 + 16}px` }}>{acc.code}</TableCell>
+          <TableCell className="font-medium">{acc.name}</TableCell>
+          <TableCell>{acc.type}</TableCell>
+          <TableCell className="text-right">€{acc.balance.toFixed(2)}</TableCell>
+          <TableCell className="text-right font-semibold">€{(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell>
+          <TableCell className="text-right">
+              <Button variant="ghost" size="sm" onClick={() => { setEditingAccount(acc); setIsAccountDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
+              <AlertDialog>
+                  <AlertDialogTrigger asChild><Button onClick={() => setDeletingAccountId(acc.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
+                  <AlertDialogContent>
+                  <AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará la cuenta {chartOfAccounts.find(a => a.id === deletingAccountId)?.name}.</AlertDialogDescription></AlertDialogHeader>
+                  <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
+                  </AlertDialogContent>
+              </AlertDialog>
+          </TableCell>
+        </TableRow>
+      );
+      if (acc.children && acc.children.length > 0) {
+        rows = rows.concat(renderAccountsRows(acc.children, level + 1));
+      }
+    }
+    return rows;
+  };
+  
+  const rootAccounts = chartOfAccounts.filter(acc => !acc.parentAccountId || !chartOfAccounts.find(a => a.id === acc.parentAccountId));
+
 
   return (
     <div className="space-y-6">
@@ -246,7 +294,8 @@ export default function AccountingPage() {
             </TabsList>
 
             <TabsContent value="dashboard" className="mt-6 space-y-6">
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               {/* ... (contenido del dashboard sin cambios) ... */}
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <CardTitle className="text-sm font-medium">Ingresos Totales (Acumulado Anual)</CardTitle>
@@ -313,30 +362,13 @@ export default function AccountingPage() {
                       <TableHead>Código</TableHead>
                       <TableHead>Nombre de Cuenta</TableHead>
                       <TableHead>Tipo</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="text-right">Saldo Directo</TableHead>
+                      <TableHead className="text-right">Saldo Acumulado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {chartOfAccounts.map(acc => (
-                      <TableRow key={acc.id}>
-                        <TableCell>{acc.code}</TableCell>
-                        <TableCell className="font-medium">{acc.name}</TableCell>
-                        <TableCell>{acc.type}</TableCell>
-                        <TableCell className="text-right">€{acc.balance.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" onClick={() => { setEditingAccount(acc); setIsAccountDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild><Button onClick={() => setDeletingAccountId(acc.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
-                                <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará la cuenta {chartOfAccounts.find(a => a.id === deletingAccountId)?.name}.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {chartOfAccounts.length === 0 && <TableRow><TableCell colSpan={5} className="text-center">No hay cuentas en el plan.</TableCell></TableRow>}
+                    {chartOfAccounts.length > 0 ? renderAccountsRows(rootAccounts) : <TableRow><TableCell colSpan={6} className="text-center">No hay cuentas en el plan.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </div>
@@ -374,7 +406,7 @@ export default function AccountingPage() {
                              <AlertDialog>
                                 <AlertDialogTrigger asChild><Button onClick={() => setDeletingJournalEntryId(entry.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
                                 <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará el asiento {journalEntries.find(je => je.id === deletingJournalEntryId)?.entryNumber}.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento?</AlertDialogTitle><AlertDialogDescription>Esta acción es irreversible. Se eliminará el asiento {journalEntries.find(je => je.id === deletingJournalEntryId)?.entryNumber}. (Advertencia: Los saldos de las cuentas afectadas no se recalcularán automáticamente con esta acción simple)</AlertDialogDescription></AlertDialogHeader>
                                 <AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingJournalEntryId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteJournalEntryConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -404,7 +436,6 @@ export default function AccountingPage() {
                     <p className="text-xs text-muted-foreground text-left">Analizar ingresos y gastos.</p>
                   </div>
                 </Button>
-                {/* ... otros botones de informes ... */}
               </div>
             </TabsContent>
 
@@ -421,18 +452,16 @@ export default function AccountingPage() {
         </CardContent>
       </Card>
 
-      {/* Account Dialog */}
       <Dialog open={isAccountDialogOpen} onOpenChange={setIsAccountDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingAccount ? "Editar Cuenta" : "Añadir Nueva Cuenta"}</DialogTitle>
             <DialogDescription>{editingAccount ? "Actualiza los detalles de la cuenta." : "Completa los detalles para añadir una nueva cuenta."}</DialogDescription>
           </DialogHeader>
-          <AccountForm account={editingAccount} onFormSubmit={handleAccountSubmit} closeDialog={() => setIsAccountDialogOpen(false)} />
+          <AccountForm account={editingAccount} existingAccounts={chartOfAccounts} onFormSubmit={handleAccountSubmit} closeDialog={() => setIsAccountDialogOpen(false)} />
         </DialogContent>
       </Dialog>
 
-      {/* Journal Entry Dialog */}
       <Dialog open={isJournalEntryDialogOpen} onOpenChange={setIsJournalEntryDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -445,5 +474,3 @@ export default function AccountingPage() {
     </div>
   );
 }
-
-    

@@ -9,16 +9,16 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Store, PlusCircle, Search, Filter, MoreHorizontal, Edit, Trash2, FileText, CreditCard, CheckCircle, XCircle, Hourglass, PackageCheck } from "lucide-react";
-import Link from "next/link";
+import { Store, PlusCircle, Search, Filter, MoreHorizontal, Edit, Trash2, FileText, CreditCard, CheckCircle, XCircle, Hourglass, PackageCheck, Trash } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { SaleOrderSchema } from "@/app/schemas/sales.schemas";
-import { type SaleOrderFormInput, addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders } from "@/app/actions/sales.actions";
+import { SaleOrderSchema, type SaleOrderFormInput, type SaleOrderItemFormInput } from "@/app/schemas/sales.schemas";
+import { addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders } from "@/app/actions/sales.actions";
+import { getInventoryItems, type InventoryItemFormInput } from "@/app/actions/inventory.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
@@ -40,25 +40,46 @@ const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
   }
 };
 
-function SaleOrderForm({ saleOrder, onFormSubmit, closeDialog }: { saleOrder?: SaleOrderFormInput, onFormSubmit: (data: SaleOrderFormInput) => Promise<void>, closeDialog: () => void }) {
-  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<SaleOrderFormInput>({
+interface AppSaleOrder extends Omit<SaleOrderFormInput, 'items'> {
+  id: string;
+  invoiceNumber: string;
+  totalAmount: number;
+  items: SaleOrderItemFormInput[]; // Para la edición
+}
+
+function SaleOrderForm({ saleOrder, inventoryItems, onFormSubmit, closeDialog }: { saleOrder?: AppSaleOrder, inventoryItems: InventoryItemFormInput[], onFormSubmit: (data: SaleOrderFormInput) => Promise<void>, closeDialog: () => void }) {
+  const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<SaleOrderFormInput>({
     resolver: zodResolver(SaleOrderSchema),
     defaultValues: saleOrder || {
-      invoiceNumber: '',
       customer: '',
       date: new Date().toISOString().split('T')[0],
-      totalAmount: 0,
       status: 'Borrador',
+      items: [{ inventoryItemId: '', quantity: 1, unitPrice: 0 }],
     },
   });
 
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "items",
+  });
+
+  const watchedItems = watch("items");
+
+  const handleInventoryItemChange = (itemIndex: number, itemId: string) => {
+    const selectedItem = inventoryItems.find(invItem => invItem.id === itemId);
+    if (selectedItem) {
+      setValue(`items.${itemIndex}.unitPrice`, selectedItem.unitPrice);
+    }
+  };
+  
+  const totalOrderAmount = watchedItems.reduce((sum, item) => {
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    return sum + (quantity * unitPrice);
+  }, 0);
+
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
-      <div>
-        <Label htmlFor="invoiceNumber">Número de Factura</Label>
-        <Input id="invoiceNumber" {...register("invoiceNumber")} />
-        {errors.invoiceNumber && <p className="text-sm text-destructive mt-1">{errors.invoiceNumber.message}</p>}
-      </div>
       <div>
         <Label htmlFor="customer">Cliente</Label>
         <Input id="customer" {...register("customer")} />
@@ -70,20 +91,13 @@ function SaleOrderForm({ saleOrder, onFormSubmit, closeDialog }: { saleOrder?: S
         {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
       </div>
       <div>
-        <Label htmlFor="totalAmount">Monto Total (€)</Label>
-        <Input id="totalAmount" type="number" step="0.01" {...register("totalAmount")} />
-        {errors.totalAmount && <p className="text-sm text-destructive mt-1">{errors.totalAmount.message}</p>}
-      </div>
-      <div>
         <Label htmlFor="status">Estado</Label>
         <Controller
           name="status"
           control={control}
           render={({ field }) => (
             <Select onValueChange={field.onChange} defaultValue={field.value}>
-              <SelectTrigger id="status">
-                <SelectValue placeholder="Seleccionar estado..." />
-              </SelectTrigger>
+              <SelectTrigger id="status"><SelectValue placeholder="Seleccionar estado..." /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Borrador">Borrador</SelectItem>
                 <SelectItem value="Confirmada">Confirmada</SelectItem>
@@ -97,10 +111,70 @@ function SaleOrderForm({ saleOrder, onFormSubmit, closeDialog }: { saleOrder?: S
         />
         {errors.status && <p className="text-sm text-destructive mt-1">{errors.status.message}</p>}
       </div>
+
+      <div className="space-y-3">
+        <Label className="text-md font-medium">Artículos de la Venta</Label>
+        {fields.map((field, index) => (
+          <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md">
+            <div className="col-span-5">
+              <Label htmlFor={`items.${index}.inventoryItemId`} className="text-xs">Artículo</Label>
+              <Controller
+                name={`items.${index}.inventoryItemId`}
+                control={control}
+                render={({ field: selectField }) => (
+                  <Select
+                    onValueChange={(value) => {
+                      selectField.onChange(value);
+                      handleInventoryItemChange(index, value);
+                    }}
+                    defaultValue={selectField.value}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Seleccionar artículo..." /></SelectTrigger>
+                    <SelectContent>
+                      {inventoryItems.map(item => (
+                        <SelectItem key={item.id} value={item.id!}>{item.name} ({item.sku}) - Stock: {item.currentStock}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.items?.[index]?.inventoryItemId && <p className="text-sm text-destructive mt-1">{errors.items[index]?.inventoryItemId?.message}</p>}
+               {errors.itemErrors?.find(e => e.index === index && e.field === 'quantity') && <p className="text-sm text-destructive mt-1">{errors.itemErrors.find(e => e.index === index && e.field === 'quantity')?.message}</p>}
+            </div>
+            <div className="col-span-2">
+              <Label htmlFor={`items.${index}.quantity`} className="text-xs">Cantidad</Label>
+              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`)} />
+              {errors.items?.[index]?.quantity && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
+            </div>
+            <div className="col-span-3">
+              <Label htmlFor={`items.${index}.unitPrice`} className="text-xs">Precio Unit. (€)</Label>
+              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`)} />
+              {errors.items?.[index]?.unitPrice && <p className="text-sm text-destructive mt-1">{errors.items[index]?.unitPrice?.message}</p>}
+            </div>
+            <div className="col-span-2 flex items-end">
+               <Button type="button" variant="ghost" size="sm" onClick={() => remove(index)} className="text-destructive hover:text-destructive" disabled={fields.length <= 1}>
+                <Trash className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        <Button type="button" variant="outline" size="sm" onClick={() => append({ inventoryItemId: '', quantity: 1, unitPrice: 0 })}>
+          <PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo
+        </Button>
+         {errors.items && typeof errors.items === 'object' && 'message' in errors.items && <p className="text-sm text-destructive mt-1">{errors.items.message}</p>}
+         {errors.items && Array.isArray(errors.items) && errors.items.length > 0 && !errors.items[0] && <p className="text-sm text-destructive mt-1">Error general en los artículos. Revisa las cantidades y el stock.</p>}
+
+
+      </div>
+      
+      <div className="text-right font-semibold text-lg">
+        Monto Total: €{totalOrderAmount.toFixed(2)}
+      </div>
+
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? (saleOrder ? "Guardando..." : "Añadiendo...") : (saleOrder ? "Guardar Cambios" : "Añadir Venta")}
+          {isSubmitting ? (saleOrder ? "Guardando..." : "Añadiendo...") : (saleOrder ? "Guardar Cambios" : "Crear Venta")}
         </Button>
       </DialogFooter>
     </form>
@@ -109,28 +183,33 @@ function SaleOrderForm({ saleOrder, onFormSubmit, closeDialog }: { saleOrder?: S
 
 
 export default function SalesPage() {
-  const [salesOrders, setSalesOrders] = useState<SaleOrderFormInput[]>([]);
+  const [salesOrders, setSalesOrders] = useState<AppSaleOrder[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemFormInput[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingSaleOrder, setEditingSaleOrder] = useState<SaleOrderFormInput | undefined>(undefined);
+  const [editingSaleOrder, setEditingSaleOrder] = useState<AppSaleOrder | undefined>(undefined);
   const [deletingSaleOrderId, setDeletingSaleOrderId] = useState<string | null>(null);
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("all");
 
-  const refreshSalesOrders = async () => {
-    const serverSOs = await getSaleOrders();
-    setSalesOrders(serverSOs);
+  const refreshData = async () => {
+    const [serverSOs, serverInvItems] = await Promise.all([
+        getSaleOrders(),
+        getInventoryItems()
+    ]);
+    setSalesOrders(serverSOs.map(so => ({ ...so, items: [] })));
+    setInventoryItems(serverInvItems);
   };
 
   useEffect(() => {
-    refreshSalesOrders();
+    refreshData();
   }, []);
 
   const handleAddSubmit = async (data: SaleOrderFormInput) => {
     const response = await addSaleOrder(data);
     if (response.success && response.saleOrder) {
       toast({ title: "Éxito", description: response.message });
-      refreshSalesOrders();
+      refreshData();
       setIsAddDialogOpen(false);
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir la orden de venta.", errors: response.errors });
@@ -139,10 +218,11 @@ export default function SalesPage() {
 
   const handleEditSubmit = async (data: SaleOrderFormInput) => {
     if (!editingSaleOrder?.id) return;
-    const response = await updateSaleOrder({ ...data, id: editingSaleOrder.id });
+    const dataForUpdate = { ...data, id: editingSaleOrder.id, invoiceNumber: editingSaleOrder.invoiceNumber, totalAmount: editingSaleOrder.totalAmount };
+    const response = await updateSaleOrder(dataForUpdate as any);
     if (response.success && response.saleOrder) {
       toast({ title: "Éxito", description: response.message });
-      refreshSalesOrders();
+      refreshData();
       setIsEditDialogOpen(false);
       setEditingSaleOrder(undefined);
     } else {
@@ -155,14 +235,14 @@ export default function SalesPage() {
     const response = await deleteSaleOrder(deletingSaleOrderId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      refreshSalesOrders();
+      refreshData();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar la orden de venta." });
     }
     setDeletingSaleOrderId(null);
   };
 
-  const openEditDialog = (so: SaleOrderFormInput) => {
+  const openEditDialog = (so: AppSaleOrder) => {
     setEditingSaleOrder(so);
     setIsEditDialogOpen(true);
   };
@@ -173,7 +253,7 @@ export default function SalesPage() {
     const response = await updateSaleOrder({ ...soToUpdate, status: newStatus });
     if (response.success) {
       toast({ title: "Éxito", description: `Venta ${soToUpdate.invoiceNumber} actualizada a ${newStatus}.` });
-      refreshSalesOrders();
+      refreshData();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el estado." });
     }
@@ -202,12 +282,12 @@ export default function SalesPage() {
                   <PlusCircle className="mr-2 h-5 w-5" /> Nueva Venta / Factura
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
+              <DialogContent className="sm:max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Nueva Venta / Factura</DialogTitle>
                   <DialogDescription>Completa los detalles para crear una nueva venta.</DialogDescription>
                 </DialogHeader>
-                <SaleOrderForm onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
+                <SaleOrderForm inventoryItems={inventoryItems} onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
               </DialogContent>
             </Dialog>
           </div>
@@ -250,7 +330,7 @@ export default function SalesPage() {
                     <TableBody>
                       {filteredSalesOrders.map((sale) => (
                         <TableRow key={sale.id}>
-                          <TableCell className="font-medium">{sale.invoiceNumber}</TableCell>
+                          <TableCell className="font-medium">{sale.invoiceNumber || 'N/A'}</TableCell>
                           <TableCell>{sale.customer}</TableCell>
                           <TableCell>{sale.date}</TableCell>
                           <TableCell className="text-right">€{sale.totalAmount.toFixed(2)}</TableCell>
@@ -266,13 +346,11 @@ export default function SalesPage() {
                                 <DropdownMenuItem onClick={() => openEditDialog(sale)}>
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
-                                <DropdownMenuItem> {/* TODO: Implement PDF generation */}
-                                  <FileText className="mr-2 h-4 w-4" /> Ver PDF
-                                </DropdownMenuItem>
+                                {/* <DropdownMenuItem> <FileText className="mr-2 h-4 w-4" /> Ver PDF </DropdownMenuItem> */}
                                 {sale.status === "Borrador" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Confirmada")}><CheckCircle className="mr-2 h-4 w-4"/> Confirmar Venta</DropdownMenuItem>}
                                 {sale.status === "Confirmada" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Enviada")}><Store className="mr-2 h-4 w-4" /> Marcar como Enviada</DropdownMenuItem>}
                                 {sale.status === "Enviada" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Entregada")}><PackageCheck className="mr-2 h-4 w-4" /> Marcar como Entregada</DropdownMenuItem>}
-                                {(sale.status === "Entregada" || sale.status === "Confirmada" || sale.status === "Enviada") && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Pagada")}><CreditCard className="mr-2 h-4 w-4" /> Marcar como Pagada</DropdownMenuItem>}
+                                {(sale.status === "Confirmada" || sale.status === "Enviada" || sale.status === "Entregada") && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Pagada")}><CreditCard className="mr-2 h-4 w-4" /> Marcar como Pagada</DropdownMenuItem>}
                                 {sale.status !== "Cancelada" && sale.status !== "Pagada" && <DropdownMenuItem onClick={() => handleStatusUpdate(sale.id!, "Cancelada")} className="text-amber-600 focus:text-amber-700 dark:text-amber-500 dark:focus:text-amber-400"><XCircle className="mr-2 h-4 w-4"/> Cancelar Venta</DropdownMenuItem>}
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
@@ -314,7 +392,6 @@ export default function SalesPage() {
         </CardContent>
         <CardFooter className="flex justify-between items-center">
            <p className="text-sm text-muted-foreground">Mostrando {filteredSalesOrders.length} de {salesOrders.length} órdenes de venta.</p>
-          {/* Pagination placeholder */}
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled>Anterior</Button>
             <Button variant="outline" size="sm" disabled>Siguiente</Button>
@@ -322,18 +399,15 @@ export default function SalesPage() {
         </CardFooter>
       </Card>
 
-      {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { setIsEditDialogOpen(isOpen); if (!isOpen) setEditingSaleOrder(undefined);}}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Editar Venta / Factura</DialogTitle>
-            <DialogDescription>Actualiza los detalles de la venta.</DialogDescription>
+            <DialogTitle>Editar Venta / Factura: {editingSaleOrder?.invoiceNumber}</DialogTitle>
+            <DialogDescription>Actualiza los detalles de la venta. La edición de artículos individuales no está disponible aquí.</DialogDescription>
           </DialogHeader>
-          {editingSaleOrder && <SaleOrderForm saleOrder={editingSaleOrder} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingSaleOrder(undefined);}} />}
+          {editingSaleOrder && <SaleOrderForm saleOrder={editingSaleOrder} inventoryItems={inventoryItems} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingSaleOrder(undefined);}} />}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
-
-    

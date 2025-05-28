@@ -7,19 +7,6 @@ import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { ContactSchema } from '@/app/schemas/contacts.schemas';
 
-// SQL - CREATE TABLE para contactos
-// CREATE TABLE contacts (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   name VARCHAR(255) NOT NULL,
-//   email VARCHAR(255) NOT NULL UNIQUE,
-//   phone VARCHAR(50) NOT NULL,
-//   type ENUM('Cliente', 'Proveedor', 'Prospecto') NOT NULL,
-//   company VARCHAR(255),
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//   -- avatarUrl TEXT,
-//   -- lastInteraction TIMESTAMP NULL
-// );
 
 export type ContactFormInput = z.infer<typeof ContactSchema>;
 
@@ -34,7 +21,7 @@ export interface ContactActionResponse {
     company?: string[];
     general?: string[];
   };
-  contact?: ContactFormInput & { id: string }; 
+  contact?: ContactFormInput & { id: string };
 }
 
 
@@ -50,7 +37,7 @@ export async function addContact(
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
-  
+
   if (!pool) {
     console.error('Error: Connection pool not available in addContact.');
     return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
@@ -59,7 +46,6 @@ export async function addContact(
   const { name, email, phone, type, company } = validatedFields.data;
 
   try {
-    // SQL - Insertar contacto en la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO contacts (name, email, phone, type, company) VALUES (?, ?, ?, ?, ?)',
       [name, email, phone, type, company || null]
@@ -78,9 +64,10 @@ export async function addContact(
     }
   } catch (error: any) {
     console.error('Error al añadir contacto (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El correo electrónico ya existe.', errors: { email: ['Este correo electrónico ya está registrado.'] } };
-    }
+    // Se elimina la verificación específica de ER_DUP_ENTRY para el email,
+    // ya que la restricción UNIQUE en la base de datos se habrá eliminado.
+    // Cualquier otro error de duplicado (ej. si hubiera un ID manual duplicado,
+    // aunque aquí es AUTO_INCREMENT) o error general se capturará abajo.
     return {
       success: false,
       message: 'Error del servidor al añadir contacto.',
@@ -104,7 +91,7 @@ export async function updateContact(
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
-  
+
   if (!pool) {
     console.error('Error: Connection pool not available in updateContact.');
     return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
@@ -113,7 +100,6 @@ export async function updateContact(
   const { id, name, email, phone, type, company } = validatedFields.data;
 
   try {
-    // SQL - Actualizar contacto en la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE contacts SET name = ?, email = ?, phone = ?, type = ?, company = ? WHERE id = ?',
       [name, email, phone, type, company || null, id]
@@ -131,9 +117,7 @@ export async function updateContact(
     }
   } catch (error: any) {
     console.error('Error al actualizar contacto (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El correo electrónico ya existe para otro contacto.', errors: { email: ['Este correo electrónico ya está registrado para otro contacto.'] } };
-    }
+    // Se elimina la verificación específica de ER_DUP_ENTRY para el email
     return {
       success: false,
       message: 'Error del servidor al actualizar contacto.',
@@ -148,19 +132,18 @@ export async function deleteContact(
   if (!contactId) {
     return { success: false, message: 'ID de contacto requerido para eliminar.' };
   }
-  
+
   if (!pool) {
     console.error('Error: Connection pool not available in deleteContact.');
     return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
   }
 
   try {
-    // SQL - Eliminar contacto de la base de datos MySQL
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM contacts WHERE id = ?',
       [contactId]
     );
-    
+
     if (result.affectedRows > 0) {
         revalidatePath('/contacts');
         return {
@@ -183,10 +166,9 @@ export async function deleteContact(
 export async function getContacts(): Promise<ContactFormInput[]> {
   if (!pool) {
     console.error('Error: Connection pool not available in getContacts.');
-    return []; 
+    return [];
   }
   try {
-    // SQL - Obtener contactos de la base de datos MySQL
     const [rows] = await pool.query<RowDataPacket[]>('SELECT id, name, email, phone, type, company FROM contacts ORDER BY name ASC');
     return rows.map(row => ({
         ...row,
@@ -194,7 +176,7 @@ export async function getContacts(): Promise<ContactFormInput[]> {
     })) as ContactFormInput[];
   } catch (error) {
     console.error('Error al obtener contactos (MySQL):', error);
-    return []; 
+    return [];
   }
 }
 

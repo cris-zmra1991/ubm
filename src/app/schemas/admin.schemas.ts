@@ -11,6 +11,7 @@ export const CompanyInfoSchema = z.object({
 
 export const UserSchema = z.object({
   id: z.string().optional(),
+  name: z.string().min(1, 'El nombre completo es requerido.'),
   username: z.string().min(3, 'El nombre de usuario debe tener al menos 3 caracteres.'),
   email: z.string().email('Correo electrónico inválido.'),
   role_id: z.coerce.number({invalid_type_error: 'Debe seleccionar un rol.'}).positive({message: 'Debe seleccionar un rol.'}).optional(), // Asegúrate que el ID del rol sea positivo
@@ -29,3 +30,4 @@ export const NotificationSettingsSchema = z.object({
   newSaleNotify: z.boolean().default(true),
   lowStockNotify: z.boolean().default(true),
 });
+
