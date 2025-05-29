@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { ResultSetHeader, RowDataPacket, Connection } from 'mysql2/promise';
 import { InventoryItemSchema, AdjustStockSchema } from '@/app/schemas/inventory.schemas';
 
 // TODO: SQL - CREATE TABLE inventory_items (... default_debit_account_id INT NULL, default_credit_account_id INT NULL, fee_percentage DECIMAL(5,2) NULL, sale_price DECIMAL(10,2) NULL, FOREIGN KEY (default_debit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL, FOREIGN KEY (default_credit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL);
@@ -35,21 +35,26 @@ export async function addInventoryItem(
   if (!pool) {
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-  
+
   const { name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
+  let finalSalePrice = salePrice;
+  if (salePrice === null && feePercentage !== null && unitPrice > 0) {
+    finalSalePrice = parseFloat((unitPrice * (1 + feePercentage / 100)).toFixed(2));
+  }
+
 
   try {
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO inventory_items (name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, salePrice]
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, finalSalePrice]
     );
 
     if (result.affectedRows > 0) {
       const newItemId = result.insertId.toString();
-      revalidatePath('/inventory');
+      revalidatePath('/inventory', 'layout');
       return {
         success: true, message: 'Artículo de inventario añadido.',
-        inventoryItem: { ...validatedFields.data, id: newItemId },
+        inventoryItem: { ...validatedFields.data, id: newItemId, salePrice: finalSalePrice }, // Devolver el salePrice calculado
       };
     } else {
       return { success: false, message: 'No se pudo añadir el artículo.' };
@@ -84,20 +89,26 @@ export async function updateInventoryItem(
   if (!pool) {
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-  
+
   const { id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
+  let finalSalePrice = salePrice;
+  if (salePrice === null && feePercentage !== null && unitPrice > 0) {
+    finalSalePrice = parseFloat((unitPrice * (1 + feePercentage / 100)).toFixed(2));
+  }
 
   try {
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE inventory_items SET name = ?, sku = ?, category = ?, currentStock = ?, reorderLevel = ?, unitPrice = ?, imageUrl = ?, supplier = ?, default_debit_account_id = ?, default_credit_account_id = ?, fee_percentage = ?, sale_price = ? WHERE id = ?',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, salePrice, parseInt(id)]
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, finalSalePrice, parseInt(id)]
     );
-    
+
     if (result.affectedRows > 0) {
-      revalidatePath('/inventory');
+      revalidatePath('/inventory', 'layout');
+      revalidatePath('/sales', 'layout'); // Revalidar ventas por si cambia el precio de los items
+      revalidatePath('/purchases', 'layout'); // Revalidar compras por si cambia el costo
       return {
         success: true, message: 'Artículo de inventario actualizado.',
-        inventoryItem: { ...validatedFields.data, id: id! },
+        inventoryItem: { ...validatedFields.data, id: id!, salePrice: finalSalePrice },
       };
     } else {
       return { success: false, message: 'Artículo no encontrado o sin cambios.' };
@@ -129,9 +140,9 @@ export async function deleteInventoryItem(
       'DELETE FROM inventory_items WHERE id = ?',
       [parseInt(itemId)]
     );
-    
+
     if (result.affectedRows > 0) {
-        revalidatePath('/inventory');
+        revalidatePath('/inventory', 'layout');
         return {
           success: true, message: 'Artículo de inventario eliminado.',
         };
@@ -141,7 +152,7 @@ export async function deleteInventoryItem(
   } catch (error: any)
    {
     console.error('Error al eliminar artículo (MySQL):', error);
-     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) { // MySQL error for FK constraint
       return { success: false, message: 'No se puede eliminar el artículo porque está referenciado en órdenes de compra o venta.'};
     }
     return {
@@ -174,7 +185,7 @@ export async function adjustStock(
     await connection.beginTransaction();
 
     const [itemRows] = await connection.query<RowDataPacket[]>(
-      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items WHERE id = ? FOR UPDATE',
+      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items WHERE id = ? FOR UPDATE', // Lock row
       [parseInt(itemId)]
     );
 
@@ -182,13 +193,13 @@ export async function adjustStock(
       await connection.rollback();
       return { success: false, message: 'Artículo no encontrado.' };
     }
-    
+
     const currentItem = itemRows[0] as InventoryItemFormInput;
     const newStock = Number(currentItem.currentStock) + quantityChange;
 
     if (newStock < 0) {
       await connection.rollback();
-      return { 
+      return {
         success: false, message: 'El ajuste resultaría en stock negativo.',
         errors: { quantityChange: ['El stock no puede ser menor que cero.'] }
       };
@@ -198,13 +209,13 @@ export async function adjustStock(
       'UPDATE inventory_items SET currentStock = ? WHERE id = ?',
       [newStock, parseInt(itemId)]
     );
-    
+
     // TODO: Registrar el ajuste en una tabla de historial de stock (stock_adjustments_log)
-    // INSERT INTO stock_adjustments_log (inventory_item_id, quantity_change, reason, new_stock, user_id) VALUES (?, ?, ?, ?, ?);
-    
+    // INSERT INTO stock_adjustments_log (inventory_item_id, quantity_change, reason, new_stock, user_id, adjustment_date) VALUES (?, ?, ?, ?, ?, CURDATE());
+
     await connection.commit();
-    
-    revalidatePath('/inventory');
+
+    revalidatePath('/inventory', 'layout');
     return {
       success: true, message: 'Stock ajustado exitosamente.',
       inventoryItem: { ...currentItem, id: currentItem.id!.toString(), currentStock: newStock },

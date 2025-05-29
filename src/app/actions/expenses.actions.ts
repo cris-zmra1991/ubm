@@ -7,19 +7,8 @@ import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket, Connection } from 'mysql2/promise';
 import { ExpenseSchema } from '@/app/schemas/expenses.schemas';
 
-// SQL - CREATE TABLE para gastos
-// CREATE TABLE expenses (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   date DATE NOT NULL,
-//   category VARCHAR(255) NOT NULL,
-//   description TEXT NOT NULL,
-//   amount DECIMAL(10, 2) NOT NULL,
-//   vendor VARCHAR(255),
-//   status ENUM('Enviado', 'Aprobado', 'Rechazado', 'Pagado') NOT NULL,
-//   receiptUrl VARCHAR(2048), 
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-// );
+// SQL - CREATE TABLE para gastos (asegúrate que status ENUM incluya 'Pagado')
+// CREATE TABLE expenses ( id INT AUTO_INCREMENT PRIMARY KEY, date DATE NOT NULL, category VARCHAR(255) NOT NULL, description TEXT NOT NULL, amount DECIMAL(10, 2) NOT NULL, vendor VARCHAR(255), status ENUM('Enviado', 'Aprobado', 'Rechazado', 'Pagado') NOT NULL, receiptUrl VARCHAR(2048), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP );
 
 export type ExpenseFormInput = z.infer<typeof ExpenseSchema>;
 
@@ -57,8 +46,8 @@ export async function addExpense(
 
     if (result.affectedRows > 0) {
       const newExpenseId = result.insertId.toString();
-      revalidatePath('/expenses');
-      revalidatePath('/payments'); // Si los gastos aprobados aparecen en pagos pendientes
+      revalidatePath('/expenses', 'layout');
+      if (status === 'Aprobado') revalidatePath('/payments', 'layout');
       return {
         success: true,
         message: 'Gasto añadido exitosamente.',
@@ -96,18 +85,23 @@ export async function updateExpense(
   if (!pool) {
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-  
+
   const { id, date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
 
   try {
+    const [currentExpense] = await pool.query<RowDataPacket[]>('SELECT status FROM expenses WHERE id = ?', [parseInt(id)]);
+    const oldStatus = currentExpense.length > 0 ? currentExpense[0].status : null;
+
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE expenses SET date = ?, category = ?, description = ?, amount = ?, vendor = ?, status = ?, receiptUrl = ? WHERE id = ?',
       [date, category, description, amount, vendor || null, status, receiptUrl || null, parseInt(id)]
     );
-    
+
     if (result.affectedRows > 0) {
-      revalidatePath('/expenses');
-      revalidatePath('/payments'); // Si el estado cambia a/desde Aprobado/Pagado
+      revalidatePath('/expenses', 'layout');
+      if (status === 'Aprobado' || oldStatus === 'Aprobado' || status === 'Pagado' || oldStatus === 'Pagado') {
+          revalidatePath('/payments', 'layout');
+      }
       return {
         success: true,
         message: 'Gasto actualizado exitosamente.',
@@ -138,14 +132,15 @@ export async function deleteExpense(
   }
 
   try {
+    // TODO: Considerar si se deben revertir asientos contables si el gasto estaba pagado o aprobado.
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM expenses WHERE id = ?',
       [parseInt(expenseId)]
     );
-    
+
     if (result.affectedRows > 0) {
-        revalidatePath('/expenses');
-        revalidatePath('/payments');
+        revalidatePath('/expenses', 'layout');
+        revalidatePath('/payments', 'layout'); // Siempre revalidar pagos por si estaba pendiente
         return {
           success: true,
           message: 'Gasto eliminado exitosamente.',
@@ -164,9 +159,7 @@ export async function deleteExpense(
 }
 
 export async function getExpenses(): Promise<(ExpenseFormInput & {id: string})[]> {
-  if (!pool) {
-    return [];
-  }
+  if (!pool) { return []; }
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, category, description, amount, vendor, status, receiptUrl FROM expenses ORDER BY date DESC'
@@ -188,37 +181,40 @@ export async function getExpenses(): Promise<(ExpenseFormInput & {id: string})[]
 }
 
 export async function getExpensesLastMonthValue(): Promise<number> {
-  if (!pool) {
-    return 0;
-  }
+  if (!pool) { return 0; }
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT SUM(amount) as total FROM expenses WHERE status = 'Pagado' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
-    if (rows.length > 0 && rows[0].total) {
-      return parseFloat(rows[0].total);
-    }
-    return 0;
+    return rows.length > 0 && rows[0].total ? parseFloat(rows[0].total) : 0;
   } catch (error) {
     console.error('Error al obtener valor de gastos del último mes (MySQL):', error);
     return 0;
   }
 }
 
-// Helper function to update status, callable internally or by payments module
 export async function updateExpenseStatus(id: string, status: ExpenseFormInput["status"], dbConnection?: Connection): Promise<boolean> {
-  const conn = dbConnection || pool;
+  const conn = dbConnection || await pool.getConnection();
   if (!conn) return false;
+
   try {
+    if (!dbConnection) await conn.beginTransaction();
+
     const [result] = await conn.query<ResultSetHeader>(
       'UPDATE expenses SET status = ? WHERE id = ?',
       [status, parseInt(id)]
     );
-    // TODO: Si el estado es 'Pagado', generar asiento contable.
-    // Por ejemplo, Debitar cuenta de Gasto, Creditar Caja/Banco.
+
+    // TODO: Si el estado es 'Aprobado', generar asiento contable (Gasto vs Cuentas por Pagar).
+    // La lógica del asiento para 'Pagado' ya está en processPayment.
+
+    if (!dbConnection) await conn.commit();
     return result.affectedRows > 0;
   } catch (error) {
+    if (!dbConnection && conn) await conn.rollback();
     console.error(`Error al actualizar estado de gasto ${id} a ${status}:`, error);
     return false;
+  } finally {
+     if (!dbConnection && conn && pool) (conn as Connection).release();
   }
 }

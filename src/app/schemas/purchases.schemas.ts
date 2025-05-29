@@ -13,8 +13,8 @@ export const PurchaseOrderSchema = z.object({
   id: z.string().optional(),
   vendorId: z.string().min(1, 'El proveedor es requerido.'),
   date: z.string().min(1, 'La fecha es requerida.'),
-  description: z.string().min(1, 'La descripción es requerida.'), // Nuevo campo
-  status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada", "Pagado"], { // Añadido 'Pagado'
+  description: z.string().min(1, 'La descripción es requerida.'),
+  status: z.enum(["Borrador", "Confirmada", "Enviada", "Recibida", "Cancelada", "Pagado"], {
     errorMap: () => ({ message: 'Selecciona un estado válido.' }),
   }),
   items: z.array(PurchaseOrderItemSchema).min(1, "Debe añadir al menos un artículo a la orden."),

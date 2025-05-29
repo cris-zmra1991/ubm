@@ -57,7 +57,7 @@ function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: {
       <div><Label htmlFor="name">Nombre</Label><Input id="name" {...register("name")} />{errors.name && <p className="text-sm text-destructive mt-1">{errors.name.message}</p>}</div>
       <div><Label htmlFor="type">Tipo</Label><Controller name="type" control={control} render={({ field }) => (<Select onValueChange={field.onChange} defaultValue={field.value}><SelectTrigger><SelectValue placeholder="Seleccionar tipo..." /></SelectTrigger><SelectContent><SelectItem value="Activo">Activo</SelectItem><SelectItem value="Pasivo">Pasivo</SelectItem><SelectItem value="Patrimonio">Patrimonio</SelectItem><SelectItem value="Ingreso">Ingreso</SelectItem><SelectItem value="Gasto">Gasto</SelectItem></SelectContent></Select>)} />{errors.type && <p className="text-sm text-destructive mt-1">{errors.type.message}</p>}</div>
       <div><Label htmlFor="parentAccountId">Cta. Padre (Opcional)</Label><Controller name="parentAccountId" control={control} render={({ field }) => (<Select onValueChange={field.onChange} defaultValue={field.value || ""}><SelectTrigger><SelectValue placeholder="Seleccionar cta. padre..." /></SelectTrigger><SelectContent><SelectItem value="">Ninguna</SelectItem>{existingAccounts.filter(acc => acc.id !== account?.id).map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent></Select>)} />{errors.parentAccountId && <p className="text-sm text-destructive mt-1">{errors.parentAccountId.message}</p>}</div>
-      <div><Label htmlFor="balance">Saldo Inicial (€)</Label><Input id="balance" type="number" step="0.01" {...register("balance", { valueAsNumber: true })} disabled={!!account} />{errors.balance && <p className="text-sm text-destructive mt-1">{errors.balance.message}</p>}{!!account && <p className="text-xs text-muted-foreground mt-1">Saldo se actualiza con asientos.</p>}</div>
+      <div><Label htmlFor="balance">Saldo Inicial (€)</Label><Input id="balance" type="number" step="0.01" {...register("balance", { valueAsNumber: true })} disabled={!!account} />{errors.balance && <p className="text-sm text-destructive mt-1">{errors.balance.message}</p>}{!!account && <p className="text-xs text-muted-foreground mt-1">El saldo de cuentas existentes se actualiza únicamente a través de asientos contables.</p>}</div>
       <DialogFooter><Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button><Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Guardando..." : "Guardar"}</Button></DialogFooter>
     </form>
   );
@@ -134,6 +134,7 @@ export default function AccountingPage() {
   };
 
   const handleJournalEntrySubmit = async (data: JournalEntryFormInput) => {
+    // Los asientos ahora son automáticos, este formulario es para ajustes.
     const response = editingJournalEntry ? await updateJournalEntry({ ...data, id: editingJournalEntry.id! }) : await addJournalEntry(data);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
@@ -145,7 +146,6 @@ export default function AccountingPage() {
 
   const handleDeleteJournalEntryConfirm = async () => {
     if (!deletingJournalEntryId) return;
-    // TODO: Advertir que eliminar asientos no recalcula saldos automáticamente de forma correcta.
     const response = await deleteJournalEntry(deletingJournalEntryId);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive" });
     if(response.success) refreshAccountingData();
@@ -156,7 +156,7 @@ export default function AccountingPage() {
     let rows: JSX.Element[] = [];
     for (const acc of accountsToRender) {
       rows.push(
-        <TableRow key={acc.id} className={level > 0 ? "bg-muted/30" : ""}>
+        <TableRow key={acc.id} className={level > 0 ? "bg-muted/30 hover:bg-muted/50" : "hover:bg-muted/30"}>
           <TableCell style={{ paddingLeft: `${level * 20 + 16}px` }}>{level > 0 ? '↳ ' : ''}{acc.code}</TableCell>
           <TableCell className="font-medium">{acc.name}</TableCell>
           <TableCell>{acc.type}</TableCell>
@@ -165,7 +165,7 @@ export default function AccountingPage() {
           <TableCell className="text-right">
               <Button variant="ghost" size="sm" onClick={() => { setEditingAccount(acc); setIsAccountDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
               <AlertDialog><AlertDialogTrigger asChild><Button onClick={() => setDeletingAccountId(acc.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger>
-                  <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Se eliminará {chartOfAccounts.find(a => a.id === deletingAccountId)?.name}.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                  <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Cuenta?</AlertDialogTitle><AlertDialogDescription>Se eliminará {chartOfAccounts.find(a => a.id === deletingAccountId)?.name}. Si tiene cuentas hijas, no se podrá eliminar.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingAccountId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteAccountConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
               </AlertDialog>
           </TableCell>
         </TableRow>
@@ -177,7 +177,7 @@ export default function AccountingPage() {
     }
     return rows;
   };
-  
+
   const rootAccounts = chartOfAccounts.filter(acc => !acc.parentAccountId || !chartOfAccounts.find(a => a.id === acc.parentAccountId)).sort((a, b) => a.code.localeCompare(b.code));
 
 
@@ -197,11 +197,11 @@ export default function AccountingPage() {
 
             <TabsContent value="dashboard" className="mt-6 space-y-6">
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Ingresos Totales (Este Año)</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalRevenue.toFixed(2)}</div></CardContent></Card>
-                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Gastos Totales (Este Año)</CardTitle><TrendingDown className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalExpenses.toFixed(2)}</div></CardContent></Card>
-                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Beneficio Neto (Este Año)</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.netProfit.toFixed(2)}</div><p className={`text-xs ${balancesSummary.netProfit >= 0 ? 'text-accent' : 'text-destructive'}`}>{balancesSummary.netProfit >=0 ? 'Positivo' : 'Negativo'}</p></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Ingresos Totales</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalRevenue.toFixed(2)}</div></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Gastos Totales</CardTitle><TrendingDown className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalExpenses.toFixed(2)}</div></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Beneficio Neto</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.netProfit.toFixed(2)}</div><p className={`text-xs ${balancesSummary.netProfit >= 0 ? 'text-accent' : 'text-destructive'}`}>{balancesSummary.netProfit >=0 ? 'Positivo' : 'Negativo'}</p></CardContent></Card>
               </div>
-              <Card><CardHeader><CardTitle>Resumen de Ingresos vs Gastos (Ejemplo)</CardTitle><CardDescription>Rendimiento de los últimos 6 meses</CardDescription></CardHeader>
+              <Card><CardHeader><CardTitle>Resumen de Ingresos vs Gastos (Ejemplo)</CardTitle><CardDescription>Rendimiento de los últimos 6 meses. (Datos de ejemplo)</CardDescription></CardHeader>
                 <CardContent className="h-[300px] w-full"><ChartContainer config={chartConfig} className="h-full w-full">
                     <ResponsiveContainer width="100%" height="100%"><BarChart data={chartDataExample} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} /><YAxis tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(value) => `€${value/1000}k`} /><ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} /><ChartLegend content={<ChartLegendContent />} /><Bar dataKey="revenue" fill="var(--color-revenue)" radius={4} /><Bar dataKey="expenses" fill="var(--color-expenses)" radius={4} /></BarChart></ResponsiveContainer>
                 </ChartContainer></CardContent>
@@ -210,31 +210,56 @@ export default function AccountingPage() {
 
             <TabsContent value="chartOfAccounts" className="mt-6">
               <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-semibold">Plan de Cuentas</h3><Button onClick={() => { setEditingAccount(undefined); setIsAccountDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/> Añadir Cuenta</Button></div>
-              <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Nombre</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">S. Directo</TableHead><TableHead className="text-right">S. Acumulado</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader><TableBody>{chartOfAccounts.length > 0 ? renderAccountsRows(rootAccounts) : <TableRow><TableCell colSpan={6} className="text-center">No hay cuentas.</TableCell></TableRow>}</TableBody></Table></div>
+              <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Código</TableHead><TableHead>Nombre</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">S. Directo</TableHead><TableHead className="text-right">S. Acumulado</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader><TableBody>{chartOfAccounts.length > 0 ? renderAccountsRows(rootAccounts) : <TableRow><TableCell colSpan={6} className="text-center">No hay cuentas contables definidas.</TableCell></TableRow>}</TableBody></Table></div>
             </TabsContent>
 
             <TabsContent value="journalEntries" className="mt-6">
-               <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-semibold">Asientos Contables</h3><p className="text-sm text-muted-foreground">Asientos generados automáticamente. Use 'Nuevo Asiento' para ajustes manuales.</p><Button onClick={() => { setEditingJournalEntry(undefined); setIsJournalEntryDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/> Nuevo Asiento (Manual)</Button></div>
+               <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-semibold">Libro Diario (Asientos Contables)</h3><Button onClick={() => { setEditingJournalEntry(undefined); setIsJournalEntryDialogOpen(true); }}><PlusCircle className="mr-2 h-4 w-4"/> Nuevo Asiento Manual</Button></div>
+               <p className="text-sm text-muted-foreground mb-4">Los asientos de compras y ventas se generan automáticamente. Use 'Nuevo Asiento Manual' solo para ajustes, apertura, cierre, etc.</p>
               <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Fecha</TableHead><TableHead>N° Asiento</TableHead><TableHead>Descripción</TableHead><TableHead>Cta. Débito</TableHead><TableHead>Cta. Crédito</TableHead><TableHead className="text-right">Monto</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
                 <TableBody>{journalEntries.map(entry => (<TableRow key={entry.id}><TableCell>{entry.date}</TableCell><TableCell>{entry.entryNumber}</TableCell><TableCell className="font-medium max-w-xs truncate">{entry.description}</TableCell><TableCell>{entry.debitAccountCode} - {chartOfAccounts.find(acc=>acc.code === entry.debitAccountCode)?.name}</TableCell><TableCell>{entry.creditAccountCode} - {chartOfAccounts.find(acc=>acc.code === entry.creditAccountCode)?.name}</TableCell><TableCell className="text-right">€{Number(entry.amount).toFixed(2)}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" onClick={() => { setEditingJournalEntry(entry); setIsJournalEntryDialogOpen(true);}}><Edit className="mr-1 h-4 w-4"/>Editar</Button>
-                    <AlertDialog><AlertDialogTrigger asChild><Button onClick={() => setDeletingJournalEntryId(entry.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento?</AlertDialogTitle><AlertDialogDescription>Se eliminará {journalEntries.find(je => je.id === deletingJournalEntryId)?.entryNumber}. ¡Advertencia! Esto no recalcula saldos.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingJournalEntryId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteJournalEntryConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                    <AlertDialog><AlertDialogTrigger asChild><Button onClick={() => setDeletingJournalEntryId(entry.id!)} variant="ghost" size="sm" className="text-destructive hover:text-destructive"><Trash2 className="mr-1 h-4 w-4"/>Eliminar</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>¿Eliminar Asiento Contable?</AlertDialogTitle><AlertDialogDescription>Se eliminará el asiento {journalEntries.find(je => je.id === deletingJournalEntryId)?.entryNumber}. ¡Advertencia! Esta acción no revierte automáticamente el impacto en los saldos de las cuentas. Considere crear un asiento de reversión en su lugar.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => setDeletingJournalEntryId(null)}>Cancelar</AlertDialogCancel><AlertDialogAction onClick={handleDeleteJournalEntryConfirm} className="bg-destructive">Eliminar</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                   </TableCell></TableRow>))}
-                  {journalEntries.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No hay asientos.</TableCell></TableRow>}
+                  {journalEntries.length === 0 && <TableRow><TableCell colSpan={7} className="text-center">No hay asientos contables registrados.</TableCell></TableRow>}
                 </TableBody></Table>
               </div>
             </TabsContent>
-            {/* Reports and Reconciliation Tabs */}
+
+            <TabsContent value="reports" className="mt-6">
+                <Card>
+                    <CardHeader><CardTitle>Informes Financieros</CardTitle><CardDescription>Genera balances, estados de resultados y otros informes. (Funcionalidad en desarrollo)</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
+                            <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">La generación de informes financieros aparecerá aquí.</p>
+                             <Button variant="secondary" className="mt-4" disabled>Generar Balance General</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            <TabsContent value="reconciliation" className="mt-6">
+                 <Card>
+                    <CardHeader><CardTitle>Conciliación Bancaria</CardTitle><CardDescription>Compara tus registros contables con los extractos bancarios. (Funcionalidad en desarrollo)</CardDescription></CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
+                            <Landmark className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                            <p className="text-muted-foreground">Las herramientas de conciliación bancaria aparecerán aquí.</p>
+                             <Button variant="secondary" className="mt-4" disabled>Iniciar Conciliación</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
 
       <Dialog open={isAccountDialogOpen} onOpenChange={(isOpen) => { setIsAccountDialogOpen(isOpen); if (!isOpen) setEditingAccount(undefined); }}>
-        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>{editingAccount ? "Editar Cuenta" : "Nueva Cuenta"}</DialogTitle><DialogDescription>{editingAccount ? "Actualiza." : "Completa detalles."}</DialogDescription></DialogHeader><AccountForm account={editingAccount} existingAccounts={chartOfAccounts} onFormSubmit={handleAccountSubmit} closeDialog={() => { setIsAccountDialogOpen(false); setEditingAccount(undefined);}} /></DialogContent>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>{editingAccount ? "Editar Cuenta Contable" : "Nueva Cuenta Contable"}</DialogTitle><DialogDescription>{editingAccount ? "Actualiza los detalles de la cuenta." : "Completa los detalles para una nueva cuenta."}</DialogDescription></DialogHeader><AccountForm account={editingAccount} existingAccounts={chartOfAccounts} onFormSubmit={handleAccountSubmit} closeDialog={() => { setIsAccountDialogOpen(false); setEditingAccount(undefined);}} /></DialogContent>
       </Dialog>
       <Dialog open={isJournalEntryDialogOpen} onOpenChange={(isOpen) => { setIsJournalEntryDialogOpen(isOpen); if (!isOpen) setEditingJournalEntry(undefined); }}>
-        <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingJournalEntry ? "Editar Asiento" : "Nuevo Asiento"}</DialogTitle><DialogDescription>{editingJournalEntry ? "Actualiza." : "Completa detalles."}</DialogDescription></DialogHeader><JournalEntryForm entry={editingJournalEntry} accounts={chartOfAccounts} onFormSubmit={handleJournalEntrySubmit} closeDialog={() => { setIsJournalEntryDialogOpen(false); setEditingJournalEntry(undefined); }} /></DialogContent>
+        <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingJournalEntry ? "Editar Asiento Manual" : "Nuevo Asiento Manual"}</DialogTitle><DialogDescription>{editingJournalEntry ? "Actualiza los detalles del asiento." : "Completa los detalles para un nuevo asiento manual."}</DialogDescription></DialogHeader><JournalEntryForm entry={editingJournalEntry} accounts={chartOfAccounts} onFormSubmit={handleJournalEntrySubmit} closeDialog={() => { setIsJournalEntryDialogOpen(false); setEditingJournalEntry(undefined); }} /></DialogContent>
       </Dialog>
     </div>
   );

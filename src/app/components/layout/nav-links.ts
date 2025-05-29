@@ -24,7 +24,7 @@ export const navLinks: NavLink[] = [
   { href: '/purchases', label: 'Compras', icon: ShoppingCart },
   { href: '/sales', label: 'Ventas', icon: Store },
   { href: '/expenses', label: 'Gastos', icon: CreditCard },
-  { href: '/payments', label: 'Pagos', icon: Banknote }, // Nuevo Módulo de Pagos
+  { href: '/payments', label: 'Pagos', icon: Banknote },
   { href: '/accounting', label: 'Contabilidad', icon: Calculator },
   { href: '/inventory', label: 'Inventario', icon: Boxes },
   { href: '/admin', label: 'Administración', icon: Settings },

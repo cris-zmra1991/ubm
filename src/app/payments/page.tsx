@@ -38,7 +38,7 @@ function ProcessPaymentForm({ pendingItem, onFormSubmit, closeDialog }: { pendin
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
       <p>Procesando pago para: <strong>{pendingItem.document_number}</strong> ({pendingItem.description})</p>
       <p>Monto Adeudado: <strong>€{pendingItem.amount_due.toFixed(2)}</strong></p>
-      
+
       <div>
         <Label htmlFor="paymentDate">Fecha de Pago</Label>
         <Input id="paymentDate" type="date" {...register("paymentDate")} />
@@ -105,8 +105,7 @@ export default function PaymentsPage() {
     const response = await processPayment(data, selectedPendingItem.source_document_type, selectedPendingItem.id);
     if (response.success && response.payment) {
       toast({ title: "Éxito", description: response.message });
-      refreshPendingPayments(); // Actualiza la lista de pendientes
-      // TODO: Podrías tener otra lista para pagos ya procesados y actualizarla aquí.
+      refreshPendingPayments();
       setIsProcessPaymentDialogOpen(false);
       setSelectedPendingItem(undefined);
     } else {
@@ -118,7 +117,7 @@ export default function PaymentsPage() {
     setSelectedPendingItem(item);
     setIsProcessPaymentDialogOpen(true);
   };
-  
+
   const getBadgeForType = (type: PendingPaymentItem['source_document_type']) => {
     switch(type) {
       case 'sale_order': return <Badge variant="outline" className="border-green-500/70 bg-green-500/10 text-green-700 dark:text-green-400">Venta</Badge>;
@@ -141,7 +140,6 @@ export default function PaymentsPage() {
               </CardDescription>
             </div>
           </div>
-          {/* Podrías añadir un botón para registrar un pago manual si es necesario */}
         </CardHeader>
         <CardContent className="space-y-6">
           <h3 className="text-xl font-semibold">Pagos Pendientes</h3>

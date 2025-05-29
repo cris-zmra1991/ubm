@@ -10,6 +10,7 @@ import { updateSaleOrderStatus } from './sales.actions';
 import { updatePurchaseOrderStatus } from './purchases.actions';
 import { updateExpenseStatus } from './expenses.actions';
 import { getSession } from '@/lib/session';
+import { addJournalEntry } from './accounting.actions';
 
 export type PaymentFormInput = z.infer<typeof PaymentSchema>;
 
@@ -66,10 +67,8 @@ export async function getPendingPayments(): Promise<PendingPaymentItem[]> {
       SELECT po.id, po.poNumber, DATE_FORMAT(po.date, "%Y-%m-%d") as date, po.totalAmount, po.description, c.name as vendorName
       FROM purchase_orders po
       LEFT JOIN contacts c ON po.vendor_id = c.id
-      WHERE po.status = 'Recibida' 
+      WHERE po.status = 'Recibida'
     `);
-    // Nota: La OC puede no tener un totalAmount si se acaba de recibir y no se ha facturado.
-    // Aquí asumimos que 'Recibida' significa que se espera un pago.
     purchaseOrders.forEach(po => {
       pendingPayments.push({
         id: po.id.toString(),
@@ -101,8 +100,7 @@ export async function getPendingPayments(): Promise<PendingPaymentItem[]> {
         description: ex.description,
       });
     });
-    
-    // Ordenar por fecha
+
     pendingPayments.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
     return pendingPayments;
 
@@ -125,7 +123,7 @@ export async function processPayment(
   if (!pool) {
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-  
+
   const session = await getSession();
   if (!session?.userId) {
     return { success: false, message: 'Usuario no autenticado.' };
@@ -138,7 +136,6 @@ export async function processPayment(
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Insertar el registro de pago
     const [paymentResult] = await connection.query<ResultSetHeader>(
       'INSERT INTO payments (source_document_type, source_document_id, payment_date, amount, payment_method, reference_number, notes, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [sourceDocumentType, parseInt(sourceDocumentId), paymentDate, amount, paymentMethod, referenceNumber, notes, parseInt(session.userId)]
@@ -150,29 +147,62 @@ export async function processPayment(
       return { success: false, message: 'No se pudo registrar el pago.' };
     }
 
-    // Actualizar estado del documento original
     let updateSuccess = false;
+    let journalEntryDescription = '';
+    let documentDetails;
+
+    // Placeholder para cuentas de Caja/Banco y Cuentas por Cobrar/Pagar
+    const DEFAULT_CASH_BANK_ACCOUNT_CODE = "1.1.01"; // Ejemplo: Caja o Banco principal
+    const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02"; // Ejemplo: Cuentas por Cobrar Clientes
+    const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo: Cuentas por Pagar Proveedores
+    const DEFAULT_EXPENSE_PAYMENT_DEBIT_ACCOUNT_CODE = "5.1.XX"; // Se debe tener una cuenta de gasto específica
+
     if (sourceDocumentType === 'sale_order') {
       updateSuccess = await updateSaleOrderStatus(sourceDocumentId, 'Pagada', connection);
+      if (updateSuccess) {
+        const [soDetails] = await connection.query<RowDataPacket[]>('SELECT invoiceNumber, description FROM sale_orders WHERE id = ?', [sourceDocumentId]);
+        documentDetails = soDetails[0];
+        journalEntryDescription = `Pago Factura Venta: ${documentDetails.invoiceNumber} - ${documentDetails.description || ''}`;
+        // Asiento: Débito a Caja/Banco, Crédito a Cuentas por Cobrar
+        await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, creditAccountCode: DEFAULT_ACCOUNTS_RECEIVABLE_CODE, amount }, connection);
+      }
     } else if (sourceDocumentType === 'purchase_order') {
       updateSuccess = await updatePurchaseOrderStatus(sourceDocumentId, 'Pagado', connection);
+       if (updateSuccess) {
+        const [poDetails] = await connection.query<RowDataPacket[]>('SELECT poNumber, description FROM purchase_orders WHERE id = ?', [sourceDocumentId]);
+        documentDetails = poDetails[0];
+        journalEntryDescription = `Pago Orden Compra: ${documentDetails.poNumber} - ${documentDetails.description || ''}`;
+        // Asiento: Débito a Cuentas por Pagar, Crédito a Caja/Banco
+        await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, creditAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, amount }, connection);
+      }
     } else if (sourceDocumentType === 'expense') {
       updateSuccess = await updateExpenseStatus(sourceDocumentId, 'Pagado', connection);
+      if (updateSuccess) {
+        const [exDetails] = await connection.query<RowDataPacket[]>('SELECT description, category FROM expenses WHERE id = ?', [sourceDocumentId]);
+        documentDetails = exDetails[0];
+        journalEntryDescription = `Pago Gasto: ${documentDetails.description || documentDetails.category}`;
+        // Asiento: Débito a la Cuenta de Gasto (debe buscarse o ser fija), Crédito a Caja/Banco
+        // Aquí se necesitaría una lógica para determinar la cuenta de gasto específica. Usamos un placeholder.
+        // O mejor aún, el gasto ya debería haber generado su propio asiento al ser 'Aprobado'. Este pago es solo el movimiento de caja.
+        // Si el gasto ya generó un asiento (Gasto vs Cuentas por Pagar), este pago sería Cuentas por Pagar vs Caja.
+        // Asumiendo que el gasto 'Aprobado' afectó una cuenta por pagar:
+        await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, /* O la cuenta de Gasto si no se provisionó */ creditAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, amount }, connection);
+      }
     }
 
     if (!updateSuccess) {
       await connection.rollback();
       return { success: false, message: `No se pudo actualizar el estado del documento original (${sourceDocumentType}).` };
     }
-    
-    // TODO: Aquí podrías generar un asiento contable para el pago si es necesario.
-    // Ejemplo: Debitar Caja/Banco, Creditar Cuentas por Cobrar (para ventas) o Cuentas por Pagar (para compras/gastos)
 
     await connection.commit();
 
-    revalidatePath('/payments');
-    revalidatePath(sourceDocumentType === 'sale_order' ? '/sales' : sourceDocumentType === 'purchase_order' ? '/purchases' : '/expenses');
-    
+    revalidatePath('/payments', 'layout');
+    revalidatePath('/accounting', 'layout');
+    if (sourceDocumentType === 'sale_order') revalidatePath('/sales', 'layout');
+    if (sourceDocumentType === 'purchase_order') revalidatePath('/purchases', 'layout');
+    if (sourceDocumentType === 'expense') revalidatePath('/expenses', 'layout');
+
     return {
       success: true,
       message: 'Pago procesado y registrado exitosamente.',

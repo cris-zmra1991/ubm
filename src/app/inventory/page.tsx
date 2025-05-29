@@ -23,7 +23,7 @@ import { getAccounts, type AccountWithDetails } from "@/app/actions/accounting.a
 import { useToast } from "@/hooks/use-toast";
 
 
-function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item?: InventoryItemFormInput, accounts: AccountWithDetails[], onFormSubmit: (data: InventoryItemFormInput) => Promise<void>, closeDialog: () => void }) {
+function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item?: InventoryItemFormInput & {id: string}, accounts: AccountWithDetails[], onFormSubmit: (data: InventoryItemFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<InventoryItemFormInput>({
     resolver: zodResolver(InventoryItemSchema),
     defaultValues: item || {
@@ -34,13 +34,14 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
 
   const unitPrice = watch("unitPrice");
   const feePercentage = watch("feePercentage");
+  const salePrice = watch("salePrice");
 
   useEffect(() => {
-    if (feePercentage !== null && feePercentage !== undefined && unitPrice > 0) {
+    if (feePercentage !== null && feePercentage !== undefined && unitPrice > 0 && salePrice === null) { // Solo calcula si salePrice no está fijado por el usuario
       const calculatedSalePrice = unitPrice * (1 + feePercentage / 100);
-      setValue("salePrice", parseFloat(calculatedSalePrice.toFixed(2)));
+      setValue("salePrice", parseFloat(calculatedSalePrice.toFixed(2)), { shouldValidate: true });
     }
-  }, [unitPrice, feePercentage, setValue]);
+  }, [unitPrice, feePercentage, salePrice, setValue]);
 
 
   return (
@@ -50,7 +51,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
         <div><Label htmlFor="sku">SKU</Label><Input id="sku" {...register("sku")} />{errors.sku && <p className="text-sm text-destructive mt-1">{errors.sku.message}</p>}</div>
       </div>
       <div><Label htmlFor="category">Categoría</Label><Input id="category" {...register("category")} />{errors.category && <p className="text-sm text-destructive mt-1">{errors.category.message}</p>}</div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div><Label htmlFor="currentStock">Stock Actual</Label><Input id="currentStock" type="number" {...register("currentStock", {valueAsNumber: true})} />{errors.currentStock && <p className="text-sm text-destructive mt-1">{errors.currentStock.message}</p>}</div>
         <div><Label htmlFor="reorderLevel">Nivel de Pedido</Label><Input id="reorderLevel" type="number" {...register("reorderLevel", {valueAsNumber: true})} />{errors.reorderLevel && <p className="text-sm text-destructive mt-1">{errors.reorderLevel.message}</p>}</div>
@@ -60,19 +61,32 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
             <Label htmlFor="feePercentage">Porcentaje de Ganancia (%) (Opcional)</Label>
-            <Input id="feePercentage" type="number" step="0.01" {...register("feePercentage", {setValueAs: (v) => v === "" ? null : parseFloat(v)})} placeholder="Ej: 25 para 25%" />
+            <Input id="feePercentage" type="number" step="0.01" {...register("feePercentage", {setValueAs: (v) => v === "" || v === null ? null : parseFloat(v)})} placeholder="Ej: 25 para 25%"
+              onChange={(e) => {
+                const fee = e.target.value === "" ? null : parseFloat(e.target.value);
+                setValue("feePercentage", fee);
+                if (fee !== null && unitPrice > 0) {
+                    const calculatedSalePrice = unitPrice * (1 + fee / 100);
+                    setValue("salePrice", parseFloat(calculatedSalePrice.toFixed(2)), { shouldValidate: true });
+                } else if (fee === null && salePrice !== null) {
+                    // Si se borra el fee, pero hay un salePrice, no hacer nada con salePrice
+                } else {
+                    setValue("salePrice", null); // Si no hay fee y no hay precio de venta, borrarlo
+                }
+              }}
+            />
             {errors.feePercentage && <p className="text-sm text-destructive mt-1">{errors.feePercentage.message}</p>}
         </div>
         <div>
             <Label htmlFor="salePrice">Precio de Venta (€) (Opcional)</Label>
-            <Input id="salePrice" type="number" step="0.01" {...register("salePrice", {setValueAs: (v) => v === "" ? null : parseFloat(v)})} placeholder="Si se deja vacío, se usa Costo + Fee"/>
+            <Input id="salePrice" type="number" step="0.01" {...register("salePrice", {setValueAs: (v) => v === "" || v === null ? null : parseFloat(v)})} placeholder="Calculado o manual"/>
             {errors.salePrice && <p className="text-sm text-destructive mt-1">{errors.salePrice.message}</p>}
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="defaultDebitAccountId">Cta. Débito/Inventario (Contabilidad)</Label>
+          <Label htmlFor="defaultDebitAccountId">Cta. Débito (Inventario/COGS)</Label>
           <Controller name="defaultDebitAccountId" control={control} render={({ field }) => (
             <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
@@ -82,7 +96,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
           {errors.defaultDebitAccountId && <p className="text-sm text-destructive mt-1">{errors.defaultDebitAccountId.message}</p>}
         </div>
         <div>
-          <Label htmlFor="defaultCreditAccountId">Cta. Crédito/Ingreso (Contabilidad)</Label>
+          <Label htmlFor="defaultCreditAccountId">Cta. Crédito (Ingresos)</Label>
            <Controller name="defaultCreditAccountId" control={control} render={({ field }) => (
             <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
@@ -95,7 +109,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
 
       <div><Label htmlFor="supplier">Proveedor (Opcional)</Label><Input id="supplier" {...register("supplier")} />{errors.supplier && <p className="text-sm text-destructive mt-1">{errors.supplier.message}</p>}</div>
       <div><Label htmlFor="imageUrl">URL de Imagen (Opcional)</Label><Input id="imageUrl" type="url" {...register("imageUrl")} placeholder="https://ejemplo.com/imagen.png" />{errors.imageUrl && <p className="text-sm text-destructive mt-1">{errors.imageUrl.message}</p>}</div>
-      
+
       <DialogFooter className="pt-4">
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
         <Button type="submit" disabled={isSubmitting}>
@@ -106,7 +120,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
   );
 }
 
-function AdjustStockForm({ item, onFormSubmit, closeDialog }: { item: InventoryItemFormInput, onFormSubmit: (data: AdjustStockFormInput) => Promise<void>, closeDialog: () => void }) {
+function AdjustStockForm({ item, onFormSubmit, closeDialog }: { item: InventoryItemFormInput & {id: string}, onFormSubmit: (data: AdjustStockFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<AdjustStockFormInput>({
     resolver: zodResolver(AdjustStockSchema),
     defaultValues: {
@@ -149,21 +163,21 @@ export default function InventoryPage() {
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const refreshInventory = async () => {
+  const refreshInventoryData = async () => {
     const [serverItems, serverAccounts] = await Promise.all([getInventoryItems(), getAccounts()]);
     setInventory(serverItems);
     setAccounts(serverAccounts);
   };
 
   useEffect(() => {
-    refreshInventory();
+    refreshInventoryData();
   }, []);
 
   const handleAddSubmit = async (data: InventoryItemFormInput) => {
     const response = await addInventoryItem(data);
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      refreshInventory();
+      refreshInventoryData();
       setIsAddDialogOpen(false);
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo añadir el artículo.", errors: response.errors });
@@ -175,7 +189,7 @@ export default function InventoryPage() {
     const response = await updateInventoryItem({ ...data, id: editingItem.id });
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      refreshInventory();
+      refreshInventoryData();
       setIsEditDialogOpen(false);
       setEditingItem(undefined);
     } else {
@@ -187,7 +201,7 @@ export default function InventoryPage() {
     const response = await adjustStock(data);
     if (response.success && response.inventoryItem) {
       toast({ title: "Éxito", description: response.message });
-      refreshInventory();
+      refreshInventoryData();
       setIsAdjustStockDialogOpen(false);
       setItemToAdjustStock(undefined);
     } else {
@@ -201,7 +215,7 @@ export default function InventoryPage() {
     const response = await deleteInventoryItem(deletingItemId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
-      refreshInventory();
+      refreshInventoryData();
     } else {
       toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo eliminar." });
     }
@@ -233,7 +247,7 @@ export default function InventoryPage() {
             </div>
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                 <DialogTrigger asChild><Button size="lg" onClick={() => setIsAddDialogOpen(true)}><PlusCircle className="mr-2 h-5 w-5" /> Añadir Artículo</Button></DialogTrigger>
-                <DialogContent className="sm:max-w-lg"> {/* Aumentado ancho */}
+                <DialogContent className="sm:max-w-lg">
                     <DialogHeader><DialogTitle>Añadir Nuevo Artículo</DialogTitle><DialogDescription>Detalles del nuevo producto.</DialogDescription></DialogHeader>
                     <InventoryItemForm accounts={accounts} onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
                 </DialogContent>
@@ -242,9 +256,19 @@ export default function InventoryPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Stats Cards */}
+            <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Valor Total Inventario</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{totalInventoryValue.toFixed(2)}</div></CardContent></Card>
+            <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Artículos Totales</CardTitle><Package className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{inventory.length}</div></CardContent></Card>
+            <Card className={lowStockItems.length > 0 ? "bg-red-500/10 border-red-500/50" : ""}><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className={`text-sm font-medium ${lowStockItems.length > 0 ? "text-red-700 dark:text-red-300" : ""}`}>Bajo Stock ({lowStockItems.length})</CardTitle><AlertTriangle className={`h-4 w-4 ${lowStockItems.length > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground"}`} /></CardHeader><CardContent><div className="text-2xl font-bold">{lowStockItems.length}</div></CardContent></Card>
           </div>
-          {/* Low Stock Alert */}
+          {lowStockItems.length > 0 && (
+            <Alert variant="destructive" className="border-red-500/50 bg-red-500/5">
+                <AlertTriangle className="h-4 w-4 !text-red-600" />
+                <AlertTitle className="text-red-700">Alerta de Bajo Stock</AlertTitle>
+                <AlertDescription className="text-red-600">
+                    Hay {lowStockItems.length} artículo(s) por debajo o en su nivel de pedido: {lowStockItems.map(item => item.name).join(', ')}. Considera realizar un pedido.
+                </AlertDescription>
+            </Alert>
+          )}
           <div className="flex flex-col md:flex-row gap-4">
             <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" /><Input placeholder="Buscar en inventario..." className="pl-10 w-full" /></div>
             <Button variant="outline"><Filter className="mr-2 h-5 w-5" /> Filtrar</Button>
@@ -269,7 +293,7 @@ export default function InventoryPage() {
                     <TableCell className="text-right font-semibold">{item.currentStock}</TableCell>
                     <TableCell className="text-right">{item.reorderLevel}</TableCell>
                     <TableCell className="text-right">€{item.unitPrice.toFixed(2)}</TableCell>
-                    <TableCell className="text-right">€{(item.salePrice ?? item.unitPrice).toFixed(2)}</TableCell> {/* Muestra precio de venta o costo si no hay pvp */}
+                    <TableCell className="text-right">€{(item.salePrice ?? item.unitPrice).toFixed(2)}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-5 w-5" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">

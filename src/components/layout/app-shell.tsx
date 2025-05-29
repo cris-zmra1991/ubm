@@ -40,12 +40,11 @@ interface AppShellProps {
   session: SessionPayload | null;
 }
 
-// Definición de patrones de acceso por rol
 const ROLE_ACCESS_PATTERNS: Record<string, RegExp[]> = {
-  'Default': [/^\/$/], 
-  'Administrador': [/^\/.*$/], 
-  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/payments(\/.*)?$/], // Añadido /payments
-  'Gerente': [/^\/$/, /^\/sales(\/.*)?$/, /^\/purchases(\/.*)?$/, /^\/inventory(\/.*)?$/, /^\/contacts(\/.*)?$/],
+  'Default': [/^\/$/],
+  'Administrador': [/^\/.*$/],
+  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/payments(\/.*)?$/],
+  'Gerente': [/^\/$/, /^\/sales(\/.*)?$/, /^\/purchases(\/.*)?$/, /^\/inventory(\/.*)?$/, /^\/contacts(\/.*)?$/, /^\/payments(\/.*)?$/], // Gerente también podría ver pagos
   'Almacenero': [/^\/$/, /^\/inventory(\/.*)?$/],
   'Comercial': [/^\/$/, /^\/contacts(\/.*)?$/, /^\/sales(\/.*)?$/],
 };
@@ -54,14 +53,16 @@ export function AppShell({ children, session }: AppShellProps) {
   const pathname = usePathname();
   const isLoginPage = pathname === '/login';
 
+  const showAppShellUI = !isLoginPage && session;
+
   return (
     <SidebarProvider defaultOpen>
-      {!isLoginPage && session && <Sidebar_Internal navLinks={allNavLinks} pathname={pathname} session={session} />}
+      {showAppShellUI && <Sidebar_Internal navLinks={allNavLinks} pathname={pathname} session={session} />}
       <div className="flex flex-col flex-1 overflow-hidden">
-        {!isLoginPage && session && <AppHeader session={session} />}
+        {showAppShellUI && <AppHeader session={session} />}
         <main className={`flex-1 overflow-y-auto bg-background ${isLoginPage ? 'h-screen' : ''}`}>
           {isLoginPage ? (
-            children 
+            children
           ) : (
             <SidebarInset>
               <div className="p-4 sm:p-6 lg:p-8">
@@ -80,15 +81,15 @@ function Sidebar_Internal({ navLinks: allNavLinks, pathname, session }: { navLin
   const userRole = session?.roleName || 'Default';
 
   const filteredNavLinks = useMemo(() => {
-    if (!session) return []; 
-    
+    if (!session) return [];
+
     const allowedPatterns = ROLE_ACCESS_PATTERNS[userRole] || ROLE_ACCESS_PATTERNS['Default'];
-    
+
     return allNavLinks.filter(link => {
-      if (link.href === '/') return true; 
+      if (link.href === '/') return true;
       return allowedPatterns.some(pattern => pattern.test(link.href));
     });
-  }, [allNavLinks, userRole, session]);
+  }, [userRole, session]); // Removed allNavLinks from dependency array as it's constant
 
 
   return (
@@ -134,7 +135,7 @@ function AppHeader({ session }: { session: SessionPayload | null }) {
       <div className="flex-1">
         {/* Placeholder for breadcrumbs or page title if needed */}
       </div>
-      <div className="ml-auto"> {/* Alinea el UserMenu a la derecha */}
+      <div className="ml-auto">
         {session && <UserMenu session={session} />}
       </div>
     </header>
@@ -150,7 +151,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
     setMounted(true);
   }, []);
 
-  if (!session) { 
+  if (!session) {
     return null;
   }
 
@@ -169,29 +170,31 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
             <div className="flex items-center w-full text-sm">
-              <span className="truncate">{userName}</span>
+              <span className="truncate">{userName} ({session.roleName})</span>
               {mounted && <ChevronDown className="ml-auto h-4 w-4 shrink-0" />}
             </div>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel className="text-xs">Mi Cuenta ({session.roleName})</DropdownMenuLabel>
+        <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end" sideOffset={5}>
+          <DropdownMenuLabel className="text-xs">Mi Cuenta</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem disabled>
             <UserCircle className="mr-2 h-4 w-4" />
             <span>Perfil</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem disabled>
             <SettingsIcon className="mr-2 h-4 w-4" />
             <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <form action={handleLogout} className="w-full">
-            <Button type="submit" variant="ghost" className="w-full justify-start px-2 py-1.5 text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive">
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Cerrar Sesión</span>
-            </Button>
-          </form>
+             <DropdownMenuItem asChild>
+                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-pointer px-2 py-1.5">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>Cerrar Sesión</span>
+                </Button>
+             </DropdownMenuItem>
+           </form>
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -201,29 +204,29 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
   return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
-            <Avatar className="h-8 w-8">
+          <Button variant="ghost" className="rounded-full h-9 w-9 p-0"> {/* Más pequeño */}
+            <Avatar className="h-8 w-8"> {/* Avatar más pequeño */}
               <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName || "Usuario"} data-ai-hint="user avatar"/>
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
             <span className="sr-only">Menú de Usuario</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
+        <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end" sideOffset={5}>
           <DropdownMenuLabel className="text-xs">{userName} ({session.roleName})</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>
+          <DropdownMenuItem disabled>
             <UserCircle className="mr-2 h-4 w-4" />
             <span>Perfil</span>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem disabled>
             <SettingsIcon className="mr-2 h-4 w-4" />
             <span>Configuración</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
            <form action={handleLogout} className="w-full">
              <DropdownMenuItem asChild>
-                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-default px-2 py-1.5">
+                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-pointer px-2 py-1.5">
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Cerrar Sesión</span>
                 </Button>
