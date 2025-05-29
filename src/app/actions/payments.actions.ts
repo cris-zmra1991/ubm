@@ -22,11 +22,11 @@ export interface PaymentActionResponse {
 }
 
 export interface PendingPaymentItem {
-  id: string;
+  id: string; // ID del documento original (venta, compra, gasto)
   source_document_type: 'sale_order' | 'purchase_order' | 'expense';
   document_number: string; // InvoiceNumber, poNumber, o Expense ID/Description
   contact_name?: string; // Customer o Vendor name
-  due_date: string; // Order date
+  due_date: string; // Order date o expense date
   amount_due: number;
   currency: string; // Asumimos EUR por ahora
   description: string;
@@ -42,12 +42,12 @@ export async function getPendingPayments(): Promise<PendingPaymentItem[]> {
   try {
     const pendingPayments: PendingPaymentItem[] = [];
 
-    // Ventas pendientes (estado 'Entregada')
+    // Ventas pendientes (estado 'Confirmada')
     const [saleOrders] = await pool.query<RowDataPacket[]>(`
       SELECT so.id, so.invoiceNumber, DATE_FORMAT(so.date, "%Y-%m-%d") as date, so.totalAmount, so.description, c.name as customerName
       FROM sale_orders so
       LEFT JOIN contacts c ON so.customer_id = c.id
-      WHERE so.status = 'Entregada'
+      WHERE so.status = 'Confirmada'
     `);
     saleOrders.forEach(so => {
       pendingPayments.push({
@@ -62,12 +62,12 @@ export async function getPendingPayments(): Promise<PendingPaymentItem[]> {
       });
     });
 
-    // Compras pendientes (estado 'Recibida')
+    // Compras pendientes (estado 'Confirmada')
     const [purchaseOrders] = await pool.query<RowDataPacket[]>(`
       SELECT po.id, po.poNumber, DATE_FORMAT(po.date, "%Y-%m-%d") as date, po.totalAmount, po.description, c.name as vendorName
       FROM purchase_orders po
       LEFT JOIN contacts c ON po.vendor_id = c.id
-      WHERE po.status = 'Recibida'
+      WHERE po.status = 'Confirmada'
     `);
     purchaseOrders.forEach(po => {
       pendingPayments.push({
@@ -82,11 +82,11 @@ export async function getPendingPayments(): Promise<PendingPaymentItem[]> {
       });
     });
 
-    // Gastos pendientes (estado 'Aprobado')
+    // Gastos pendientes (estado 'Confirmada')
     const [expenses] = await pool.query<RowDataPacket[]>(`
       SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, amount, description, vendor
       FROM expenses
-      WHERE status = 'Aprobado'
+      WHERE status = 'Confirmada'
     `);
     expenses.forEach(ex => {
       pendingPayments.push({
@@ -151,19 +151,19 @@ export async function processPayment(
     let journalEntryDescription = '';
     let documentDetails;
 
-    // Placeholder para cuentas de Caja/Banco y Cuentas por Cobrar/Pagar
-    const DEFAULT_CASH_BANK_ACCOUNT_CODE = "1.1.01"; // Ejemplo: Caja o Banco principal
-    const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02"; // Ejemplo: Cuentas por Cobrar Clientes
-    const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo: Cuentas por Pagar Proveedores
-    const DEFAULT_EXPENSE_PAYMENT_DEBIT_ACCOUNT_CODE = "5.1.XX"; // Se debe tener una cuenta de gasto específica
+    // TODO: SQL - Configurar estas cuentas en un lugar centralizado o según configuración de la empresa.
+    const DEFAULT_CASH_BANK_ACCOUNT_CODE = "1.1.01"; // Ejemplo: Caja o Banco principal (Activo)
+    const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02"; // Ejemplo: Clientes (Activo) - se reduce al cobrar
+    const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo: Proveedores (Pasivo) - se reduce al pagar
+    const DEFAULT_ACCOUNTS_PAYABLE_FOR_EXPENSE_CODE = "2.1.02"; // Placeholder para Cuentas por Pagar - Gastos
 
     if (sourceDocumentType === 'sale_order') {
       updateSuccess = await updateSaleOrderStatus(sourceDocumentId, 'Pagada', connection);
       if (updateSuccess) {
         const [soDetails] = await connection.query<RowDataPacket[]>('SELECT invoiceNumber, description FROM sale_orders WHERE id = ?', [sourceDocumentId]);
         documentDetails = soDetails[0];
-        journalEntryDescription = `Pago Factura Venta: ${documentDetails.invoiceNumber} - ${documentDetails.description || ''}`;
-        // Asiento: Débito a Caja/Banco, Crédito a Cuentas por Cobrar
+        journalEntryDescription = `Cobro Factura Venta: ${documentDetails.invoiceNumber} - ${documentDetails.description || ''}`;
+        // Asiento: Dr: Caja/Banco, Cr: Cuentas por Cobrar
         await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, creditAccountCode: DEFAULT_ACCOUNTS_RECEIVABLE_CODE, amount }, connection);
       }
     } else if (sourceDocumentType === 'purchase_order') {
@@ -172,7 +172,7 @@ export async function processPayment(
         const [poDetails] = await connection.query<RowDataPacket[]>('SELECT poNumber, description FROM purchase_orders WHERE id = ?', [sourceDocumentId]);
         documentDetails = poDetails[0];
         journalEntryDescription = `Pago Orden Compra: ${documentDetails.poNumber} - ${documentDetails.description || ''}`;
-        // Asiento: Débito a Cuentas por Pagar, Crédito a Caja/Banco
+        // Asiento: Dr: Cuentas por Pagar, Cr: Caja/Banco
         await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, creditAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, amount }, connection);
       }
     } else if (sourceDocumentType === 'expense') {
@@ -181,12 +181,9 @@ export async function processPayment(
         const [exDetails] = await connection.query<RowDataPacket[]>('SELECT description, category FROM expenses WHERE id = ?', [sourceDocumentId]);
         documentDetails = exDetails[0];
         journalEntryDescription = `Pago Gasto: ${documentDetails.description || documentDetails.category}`;
-        // Asiento: Débito a la Cuenta de Gasto (debe buscarse o ser fija), Crédito a Caja/Banco
-        // Aquí se necesitaría una lógica para determinar la cuenta de gasto específica. Usamos un placeholder.
-        // O mejor aún, el gasto ya debería haber generado su propio asiento al ser 'Aprobado'. Este pago es solo el movimiento de caja.
-        // Si el gasto ya generó un asiento (Gasto vs Cuentas por Pagar), este pago sería Cuentas por Pagar vs Caja.
-        // Asumiendo que el gasto 'Aprobado' afectó una cuenta por pagar:
-        await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, /* O la cuenta de Gasto si no se provisionó */ creditAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, amount }, connection);
+        // Asiento: Dr: Cuentas por Pagar (Gastos), Cr: Caja/Banco
+        // Esto asume que el gasto confirmado generó Dr: Gasto, Cr: Cuentas por Pagar (Gastos).
+        await addJournalEntry({ date: paymentDate, entryNumber: '', description: journalEntryDescription, debitAccountCode: DEFAULT_ACCOUNTS_PAYABLE_FOR_EXPENSE_CODE, creditAccountCode: DEFAULT_CASH_BANK_ACCOUNT_CODE, amount }, connection);
       }
     }
 

@@ -8,7 +8,7 @@ export const ExpenseSchema = z.object({
   description: z.string().min(1, 'La descripción es requerida.'),
   amount: z.coerce.number().positive('El monto debe ser positivo.'),
   vendor: z.string().optional().nullable(),
-  status: z.enum(["Enviado", "Aprobado", "Rechazado", "Pagado"], {
+  status: z.enum(["Borrador", "Confirmada", "Cancelada", "Pagado"], { // Estados actualizados
     errorMap: () => ({ message: 'Selecciona un estado válido.' }),
   }),
   receiptUrl: z.string().url({ message: "URL de recibo inválida." }).optional().or(z.literal('')),

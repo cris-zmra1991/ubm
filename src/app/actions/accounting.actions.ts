@@ -12,7 +12,7 @@ export type JournalEntryFormInput = z.infer<typeof JournalEntrySchema>;
 
 export interface AccountWithDetails extends AccountFormInput {
   id: string;
-  parent_account_id?: string | null; // Usado internamente en el backend
+  parent_account_id?: string | null; 
   rolledUpBalance?: number;
   children?: AccountWithDetails[];
 }
@@ -33,7 +33,8 @@ async function generateJournalEntryNumber(connection: Connection): Promise<strin
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
   const day = now.getDate().toString().padStart(2, '0');
 
-  // TODO: SQL - Considerar una secuencia en la base de datos o una tabla de contadores para mayor robustez en entornos de alta concurrencia.
+  // TODO: SQL - Esta forma de generar secuenciales puede tener problemas de concurrencia en sistemas de alto tráfico.
+  // Considerar una secuencia de BD, una tabla de contadores dedicada, o un UUID si la secuencia estricta no es vital.
   const [rows] = await connection.query<RowDataPacket[]>(
     "SELECT COUNT(*) as count FROM journal_entries WHERE DATE(created_at) = CURDATE()"
   );
@@ -59,6 +60,7 @@ export async function addAccount(
   try {
     const parentIdValue = parentAccountId ? parseInt(parentAccountId) : null;
 
+    // TODO: SQL - INSERT INTO chart_of_accounts (code, name, type, balance, parent_account_id) VALUES (?, ?, ?, ?, ?)
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO chart_of_accounts (code, name, type, balance, parent_account_id) VALUES (?, ?, ?, ?, ?)',
       [code, name, type, balance, parentIdValue]
@@ -103,8 +105,7 @@ export async function updateAccount(
         return { success: false, message: 'Una cuenta no puede ser su propia cuenta padre.', errors: { parentAccountId: ['Selecciona una cuenta padre diferente.'] } };
     }
 
-    // TODO: Implementar lógica para prevenir ciclos (A es padre de B, B no puede ser padre de A). Esto requiere recorrer el árbol hacia arriba desde el padre propuesto.
-
+    // TODO: SQL - UPDATE chart_of_accounts SET code = ?, name = ?, type = ?, parent_account_id = ? WHERE id = ?
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE chart_of_accounts SET code = ?, name = ?, type = ?, parent_account_id = ? WHERE id = ?',
       [code, name, type, parentIdValue, parseInt(id)]
@@ -136,12 +137,14 @@ export async function deleteAccount(accountId: string): Promise<AccountingAction
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
+    // TODO: SQL - SELECT id FROM chart_of_accounts WHERE parent_account_id = ?
     const [childrenRows] = await connection.query<RowDataPacket[]>('SELECT id FROM chart_of_accounts WHERE parent_account_id = ?', [parseInt(accountId)]);
     if (childrenRows.length > 0) {
       await connection.rollback();
       return { success: false, message: 'No se puede eliminar: la cuenta tiene cuentas hijas asignadas. Reasigna o elimina las cuentas hijas primero.' };
     }
-
+    // TODO: SQL - Considerar verificar si la cuenta tiene asientos en journal_entries antes de eliminar.
+    // TODO: SQL - DELETE FROM chart_of_accounts WHERE id = ?
     const [result] = await connection.query<ResultSetHeader>('DELETE FROM chart_of_accounts WHERE id = ?', [parseInt(accountId)]);
     await connection.commit();
 
@@ -154,7 +157,7 @@ export async function deleteAccount(accountId: string): Promise<AccountingAction
   } catch (error: any) {
     if (connection) await connection.rollback();
     console.error('Error al eliminar cuenta (MySQL):', error);
-    if (error.errno === 1451) { // MySQL error for foreign key constraint violation
+    if (error.errno === 1451) { 
         return { success: false, message: 'No se puede eliminar: la cuenta está referenciada en asientos contables u otras configuraciones (ej. productos).' };
     }
     return { success: false, message: 'Error al eliminar cuenta.', errors: { general: ['Error del servidor.'] } };
@@ -166,7 +169,7 @@ export async function deleteAccount(accountId: string): Promise<AccountingAction
 export async function getAccounts(): Promise<AccountWithDetails[]> {
   if (!pool) { return []; }
   try {
-    // TODO: SQL - Considerar ordenamiento más sofisticado si los códigos no son siempre numéricos o fácilmente ordenables alfabéticamente para la jerarquía.
+    // TODO: SQL - SELECT id, code, name, type, balance, parent_account_id FROM chart_of_accounts ORDER BY code ASC
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, code, name, type, balance, parent_account_id FROM chart_of_accounts ORDER BY code ASC'
     );
@@ -178,8 +181,8 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
       type: row.type,
       balance: parseFloat(row.balance),
       parentAccountId: row.parent_account_id?.toString() || null,
-      parent_account_id: row.parent_account_id?.toString() || null,
-      rolledUpBalance: parseFloat(row.balance), // Inicializar con balance directo
+      parent_account_id: row.parent_account_id?.toString() || null, // Para la construcción del árbol
+      rolledUpBalance: parseFloat(row.balance), 
       children: [],
     }));
 
@@ -198,16 +201,24 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
     });
     
     function calculateRolledUpBalances(account: AccountWithDetails): number {
-      let sum = account.balance;
+      let sum = account.balance; // Saldo directo de la cuenta
       if (account.children && account.children.length > 0) {
         for (const child of account.children) {
-          sum += calculateRolledUpBalances(child);
+          sum += calculateRolledUpBalances(child); // Sumar el saldo acumulado de las hijas
         }
       }
       account.rolledUpBalance = sum;
       return sum;
     }
-    rootAccounts.forEach(calculateRolledUpBalances);
+    rootAccounts.forEach(calculateRolledUpBalances); // Calcula para las cuentas raíz, que recursivamente calculará para todas
+    
+    // Para devolver la lista plana pero con rolledUpBalance calculado para todas:
+    // Se actualiza el mapa después del cálculo para que todas las cuentas en 'accounts' tengan el rolledUpBalance.
+    accounts.forEach(acc => {
+        if (accountMap.has(acc.id)) {
+            acc.rolledUpBalance = accountMap.get(acc.id)!.rolledUpBalance;
+        }
+    });
     return accounts;
 
   } catch (error) {
@@ -221,30 +232,31 @@ const ACCOUNT_TYPES_INCREASE_WITH_CREDIT = ['Pasivo', 'Patrimonio', 'Ingreso'];
 
 export async function addJournalEntry(
   data: JournalEntryFormInput,
-  dbConnection?: Connection
+  dbConnection?: Connection // Permite usar una transacción existente
 ): Promise<AccountingActionResponse<JournalEntryFormInput>> {
   const validatedFields = JournalEntrySchema.safeParse(data);
   if (!validatedFields.success) {
-    return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
+    return { success: false, message: 'Error de validación de asiento.', errors: validatedFields.error.flatten().fieldErrors };
   }
 
   const conn = dbConnection || await pool.getConnection();
   if (!conn && !dbConnection) {
-     return { success: false, message: 'Error del servidor: DB no disponible.' };
+     return { success: false, message: 'Error del servidor: DB no disponible para asiento.' };
   }
 
   const { date, description, debitAccountCode, creditAccountCode, amount } = validatedFields.data;
   let { entryNumber } = validatedFields.data;
 
   try {
-    if (!dbConnection) await conn.beginTransaction();
+    if (!dbConnection) await conn.beginTransaction(); // Iniciar transacción solo si no se pasó una conexión
 
-    if (!entryNumber) {
+    if (!entryNumber || entryNumber.trim() === '') { // Generar número si está vacío
         entryNumber = await generateJournalEntryNumber(conn);
     }
 
-    const [debitAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [debitAccountCode]);
-    const [creditAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [creditAccountCode]);
+    // Verificar que las cuentas existan
+    const [debitAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type, balance FROM chart_of_accounts WHERE code = ?', [debitAccountCode]);
+    const [creditAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type, balance FROM chart_of_accounts WHERE code = ?', [creditAccountCode]);
 
     if (debitAccountRows.length === 0) {
       if (!dbConnection) await conn.rollback();
@@ -263,24 +275,29 @@ export async function addJournalEntry(
     const creditAccountType = creditAccountRows[0].type;
     const numericAmount = Number(amount);
 
+    // Insertar el asiento
+    // TODO: SQL - INSERT INTO journal_entries (date, entryNumber, description, debitAccountCode, creditAccountCode, amount) VALUES (?, ?, ?, ?, ?, ?)
     const [result] = await conn.query<ResultSetHeader>(
       'INSERT INTO journal_entries (date, entryNumber, description, debitAccountCode, creditAccountCode, amount) VALUES (?, ?, ?, ?, ?, ?)',
       [date, entryNumber, description, debitAccountCode, creditAccountCode, numericAmount]
     );
 
+    // Actualizar saldos de las cuentas
+    // Para la cuenta de débito:
     if (ACCOUNT_TYPES_INCREASE_WITH_DEBIT.includes(debitAccountType)) {
         await conn.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, debitAccountCode]);
-    } else if (ACCOUNT_TYPES_INCREASE_WITH_CREDIT.includes(debitAccountType)) {
+    } else if (ACCOUNT_TYPES_INCREASE_WITH_CREDIT.includes(debitAccountType)) { // Si se debita una cuenta que aumenta con crédito, su saldo disminuye
         await conn.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, debitAccountCode]);
     }
 
+    // Para la cuenta de crédito:
     if (ACCOUNT_TYPES_INCREASE_WITH_CREDIT.includes(creditAccountType)) {
         await conn.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, creditAccountCode]);
-    } else if (ACCOUNT_TYPES_INCREASE_WITH_DEBIT.includes(creditAccountType)) {
+    } else if (ACCOUNT_TYPES_INCREASE_WITH_DEBIT.includes(creditAccountType)) { // Si se acredita una cuenta que aumenta con débito, su saldo disminuye
         await conn.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, creditAccountCode]);
     }
 
-    if (!dbConnection) await conn.commit();
+    if (!dbConnection) await conn.commit(); // Confirmar transacción solo si no se pasó una conexión
 
     if (result.affectedRows > 0) {
       const newEntryId = result.insertId.toString();
@@ -291,22 +308,25 @@ export async function addJournalEntry(
       return { success: false, message: 'No se pudo añadir el asiento.' };
     }
   } catch (error: any) {
-    if (!dbConnection && conn) await conn.rollback();
+    if (!dbConnection && conn) await conn.rollback(); // Revertir transacción en caso de error si no se pasó una conexión
     console.error('Error al añadir asiento (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' && error.message.includes('entryNumber')) {
         return { success: false, message: 'Error: El número de asiento ya existe.', errors: { entryNumber: ['Este número ya está registrado. Intenta de nuevo.'] } };
     }
     return { success: false, message: 'Error al añadir asiento.', errors: { general: ['Error del servidor al procesar el asiento.'] } };
   } finally {
-    if (!dbConnection && conn && pool) (conn as Connection).release();
+    if (!dbConnection && conn && pool) (conn as Connection).release(); // Liberar conexión solo si no se pasó una
   }
 }
 
 export async function updateJournalEntry(
   data: JournalEntryFormInput
 ): Promise<AccountingActionResponse<JournalEntryFormInput>> {
+  // ADVERTENCIA: La edición de asientos contables es compleja.
+  // Normalmente, se realizan asientos de reversión o ajuste en lugar de modificar directamente.
+  // Esta función actualiza los datos descriptivos, pero NO recalcula saldos ni revierte el asiento original.
   if (!data.id) return { success: false, message: 'ID de asiento requerido.' };
-  console.warn("updateJournalEntry: Actualización no afecta saldos. Solo para corrección de datos descriptivos.");
+  console.warn("updateJournalEntry: Actualización no afecta saldos de cuentas. Solo para corrección de datos descriptivos del asiento como fecha o descripción.");
 
   const validatedFields = JournalEntrySchema.safeParse(data);
    if (!validatedFields.success) {
@@ -317,19 +337,18 @@ export async function updateJournalEntry(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { id, date, entryNumber, description, debitAccountCode, creditAccountCode, amount } = validatedFields.data;
-
+  const { id, date, entryNumber, description /*, debitAccountCode, creditAccountCode, amount */ } = validatedFields.data;
+  // Por seguridad, no permitir cambiar cuentas o monto desde una edición simple.
+  // TODO: SQL - UPDATE journal_entries SET date = ?, entryNumber = ?, description = ? /*, debitAccountCode = ?, creditAccountCode = ?, amount = ? */ WHERE id = ?
   try {
-    // TODO: SQL - Debería haber una validación estricta para no permitir cambiar cuentas o monto de un asiento ya procesado.
-    // La edición debería ser solo para la descripción o fecha, o requerir un asiento de reversión.
     const [result] = await pool.query<ResultSetHeader>(
-      'UPDATE journal_entries SET date = ?, entryNumber = ?, description = ?, debitAccountCode = ?, creditAccountCode = ?, amount = ? WHERE id = ?',
-      [date, entryNumber, description, debitAccountCode, creditAccountCode, amount, parseInt(id)]
+      'UPDATE journal_entries SET date = ?, entryNumber = ?, description = ? WHERE id = ?',
+      [date, entryNumber, description, parseInt(id)]
     );
 
     if (result.affectedRows > 0) {
         revalidatePath('/accounting', 'layout');
-        return { success: true, message: 'Asiento actualizado (ADVERTENCIA: Saldos no recalculados).', data: { ...validatedFields.data, id: id! } };
+        return { success: true, message: 'Asiento actualizado (solo datos descriptivos).', data: { ...validatedFields.data, id: id! } };
     } else {
         return { success: false, message: 'Asiento no encontrado o sin cambios.' };
     }
@@ -340,17 +359,20 @@ export async function updateJournalEntry(
 }
 
 export async function deleteJournalEntry(entryId: string): Promise<AccountingActionResponse<null>> {
+   // ADVERTENCIA: La eliminación de asientos contables es peligrosa y puede desbalancear la contabilidad.
+   // Normalmente, se realizan asientos de reversión.
+   // Esta función elimina el asiento, pero NO revierte el impacto en los saldos de las cuentas.
    if (!pool) {
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-  console.warn("deleteJournalEntry: Eliminación no revierte impacto en saldos.");
+  console.warn("deleteJournalEntry: Eliminación no revierte impacto en saldos de cuentas.");
   try {
-    // TODO: SQL - Al igual que con update, la eliminación directa es peligrosa. Considerar un asiento de reversión.
+    // TODO: SQL - DELETE FROM journal_entries WHERE id = ?
     const [result] = await pool.query<ResultSetHeader>('DELETE FROM journal_entries WHERE id = ?', [parseInt(entryId)]);
     if (result.affectedRows > 0) {
         revalidatePath('/accounting', 'layout');
         revalidatePath('/', 'layout');
-        return { success: true, message: 'Asiento eliminado (ADVERTENCIA: Saldos no recalculados).' };
+        return { success: true, message: 'Asiento eliminado (ADVERTENCIA: Saldos de cuentas no recalculados).' };
     } else {
         return { success: false, message: 'Asiento no encontrado.'};
     }
@@ -363,6 +385,7 @@ export async function deleteJournalEntry(entryId: string): Promise<AccountingAct
 export async function getJournalEntries(): Promise<(JournalEntryFormInput & { id: string })[]> {
   if (!pool) { return []; }
   try {
+    // TODO: SQL - SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, entryNumber, description, debitAccountCode, creditAccountCode, amount FROM journal_entries ORDER BY date DESC, entryNumber DESC
     const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, entryNumber, description, debitAccountCode, creditAccountCode, amount FROM journal_entries ORDER BY date DESC, entryNumber DESC'
     );
@@ -386,10 +409,14 @@ export async function getAccountBalancesSummary(): Promise<{ totalRevenue: numbe
     return { totalRevenue: 0, totalExpenses: 0, netProfit: 0 };
   }
   try {
+    // TODO: SQL - SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Ingreso'
     const [revenueRows] = await pool.query<RowDataPacket[]>("SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Ingreso'");
+    // TODO: SQL - SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Gasto'
     const [expenseRows] = await pool.query<RowDataPacket[]>("SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Gasto'");
 
+    // Los ingresos tienen saldo natural Acreedor (negativo en este sistema si Activos/Gastos son positivos). Tomamos el absoluto.
     const totalRevenue = revenueRows[0]?.total ? Math.abs(parseFloat(revenueRows[0].total)) : 0;
+    // Los gastos tienen saldo natural Deudor (positivo).
     const totalExpenses = expenseRows[0]?.total ? parseFloat(expenseRows[0].total) : 0;
 
     return {
@@ -403,7 +430,6 @@ export async function getAccountBalancesSummary(): Promise<{ totalRevenue: numbe
   }
 }
 
-// --- Funciones para Informes Financieros ---
 export interface BalanceSheetData {
   assets: AccountWithDetails[];
   liabilities: AccountWithDetails[];
@@ -417,27 +443,26 @@ export interface BalanceSheetData {
 export async function generateBalanceSheet(): Promise<BalanceSheetData> {
   if (!pool) throw new Error('DB no disponible.');
   try {
-    const allAccounts = await getAccounts(); // Esto ya calcula rolledUpBalance
+    const allAccounts = await getAccounts(); // Esta función ya calcula rolledUpBalance para la jerarquía
     
     const assets = allAccounts.filter(acc => acc.type === 'Activo' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
     const liabilities = allAccounts.filter(acc => acc.type === 'Pasivo' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
     const equity = allAccounts.filter(acc => acc.type === 'Patrimonio' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
 
+    // Usar rolledUpBalance para los totales de las categorías principales
     const totalAssets = assets.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
+    // Para Pasivos y Patrimonio, sus saldos naturales son Acreedores.
+    // Si rolledUpBalance los tiene negativos (consistente con Ingresos), tomamos el absoluto para presentación.
     const totalLiabilities = liabilities.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
     const totalEquity = equity.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
     
-    // En contabilidad, el Pasivo y Patrimonio suelen tener saldos acreedores (negativos en nuestro sistema de saldo si Activos y Gastos son positivos)
-    // Para la presentación, a menudo se muestran como positivos y se suman.
-    // Asumimos que rolledUpBalance ya refleja esto correctamente o la presentación lo ajustará.
-
     return {
       assets,
       liabilities,
       equity,
       totalAssets,
-      totalLiabilities: Math.abs(totalLiabilities), // Mostrar como positivo
-      totalEquity: Math.abs(totalEquity), // Mostrar como positivo
+      totalLiabilities: Math.abs(totalLiabilities), 
+      totalEquity: Math.abs(totalEquity), 
       totalLiabilitiesAndEquity: Math.abs(totalLiabilities) + Math.abs(totalEquity)
     };
   } catch (error) {
@@ -462,9 +487,9 @@ export async function generateIncomeStatement(): Promise<IncomeStatementData> {
     const revenues = allAccounts.filter(acc => acc.type === 'Ingreso' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
     const expenses = allAccounts.filter(acc => acc.type === 'Gasto' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
 
-    // Los ingresos suelen tener saldo acreedor (negativo). Para el estado de resultados, los mostramos como positivos.
+    // Ingresos (saldo natural Acreedor). rolledUpBalance será negativo si es consistente. Tomamos absoluto.
     const totalRevenues = revenues.reduce((sum, acc) => sum + Math.abs(acc.rolledUpBalance ?? 0), 0);
-    // Los gastos suelen tener saldo deudor (positivo).
+    // Gastos (saldo natural Deudor). rolledUpBalance será positivo.
     const totalExpenses = expenses.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
 
     return {
@@ -477,5 +502,74 @@ export async function generateIncomeStatement(): Promise<IncomeStatementData> {
   } catch (error) {
     console.error('Error al generar Estado de Resultados (MySQL):', error);
     throw error;
+  }
+}
+
+export interface MonthlyIncomeExpense {
+  month: string; // YYYY-MM
+  revenue: number;
+  expenses: number;
+}
+
+export async function getIncomeVsExpenseChartData(months: number = 6): Promise<MonthlyIncomeExpense[]> {
+  if (!pool) {
+    return [];
+  }
+  try {
+    // TODO: SQL - Esta consulta es un ejemplo y necesitará ajustes para agrupar por mes correctamente.
+    // Se basa en que 'journal_entries' y 'chart_of_accounts' están bien pobladas.
+    const [rows] = await pool.query<RowDataPacket[]>(`
+      SELECT
+        DATE_FORMAT(je.date, '%Y-%m') AS month,
+        SUM(CASE WHEN ca.type = 'Ingreso' THEN je.amount ELSE 0 END) AS monthly_revenue,
+        SUM(CASE WHEN ca.type = 'Gasto' THEN je.amount ELSE 0 END) AS monthly_expenses
+      FROM journal_entries je
+      JOIN chart_of_accounts ca_debit ON je.debitAccountCode = ca_debit.code
+      JOIN chart_of_accounts ca_credit ON je.creditAccountCode = ca_credit.code
+      WHERE je.date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+        AND (ca_debit.type IN ('Ingreso', 'Gasto') OR ca_credit.type IN ('Ingreso', 'Gasto')) 
+        -- ^ Esta condición es un poco simplista, un asiento de ingreso es Dr:CuentasPorCobrar Cr:Ingreso
+        -- Un asiento de gasto es Dr:Gasto Cr:CuentasPorPagar.
+        -- La suma de 'je.amount' debe considerar si la cuenta de Ingreso/Gasto está en el débito o crédito.
+        -- Para Ingresos (Crédito), el 'amount' del asiento es el ingreso.
+        -- Para Gastos (Débito), el 'amount' del asiento es el gasto.
+      GROUP BY month
+      ORDER BY month ASC
+      LIMIT ?;
+    `, [months, months]);
+    
+    // La consulta anterior es un borrador. Una forma más precisa sería:
+    // Sumar 'je.amount' si 'ca_credit.type' = 'Ingreso' para ingresos.
+    // Sumar 'je.amount' si 'ca_debit.type' = 'Gasto' para gastos.
+
+    const [refinedRows] = await pool.query<RowDataPacket[]>(`
+      SELECT
+        DATE_FORMAT(je.date, '%Y-%m') AS entry_month,
+        SUM(CASE WHEN ca_credit.type = 'Ingreso' THEN je.amount ELSE 0 END) AS total_revenue,
+        SUM(CASE WHEN ca_debit.type = 'Gasto' THEN je.amount ELSE 0 END) AS total_expenses
+      FROM journal_entries je
+      LEFT JOIN chart_of_accounts ca_debit ON je.debitAccountCode = ca_debit.code
+      LEFT JOIN chart_of_accounts ca_credit ON je.creditAccountCode = ca_credit.code
+      WHERE je.date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
+      GROUP BY entry_month
+      ORDER BY entry_month ASC
+      LIMIT ?;
+    `, [months, months]);
+
+
+    const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+    
+    return refinedRows.map(row => {
+        const [year, monthNum] = (row.entry_month as string).split('-');
+        return {
+            month: `${monthNames[parseInt(monthNum) - 1]} ${year}`, // Formato más legible para el chart
+            revenue: parseFloat(row.total_revenue) || 0,
+            expenses: parseFloat(row.total_expenses) || 0,
+        };
+    });
+
+  } catch (error) {
+    console.error('Error al obtener datos para gráfico Ingresos vs Gastos (MySQL):', error);
+    return [];
   }
 }

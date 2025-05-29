@@ -23,20 +23,20 @@ import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: ExpenseFormInput["status"]) => {
   switch (status) {
-    case "Enviado":
-      return <Badge variant="outline" className="border-blue-500/70 bg-blue-500/10 text-blue-700 dark:text-blue-400"><Hourglass className="mr-1 h-3 w-3" />Enviado</Badge>;
-    case "Aprobado":
-      return <Badge variant="outline" className="border-green-500/70 bg-green-500/10 text-green-700 dark:text-green-400"><CheckCircle className="mr-1 h-3 w-3" />Aprobado</Badge>;
-    case "Rechazado":
-      return <Badge variant="destructive" className="bg-red-500/10 text-red-700 dark:bg-red-700/30 dark:text-red-300 border-red-500/30"><XCircle className="mr-1 h-3 w-3" />Rechazado</Badge>;
+    case "Borrador":
+      return <Badge variant="outline" className="border-yellow-500/70 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"><Hourglass className="mr-1 h-3 w-3" />Borrador</Badge>;
+    case "Confirmada":
+      return <Badge variant="outline" className="border-blue-500/70 bg-blue-500/10 text-blue-700 dark:text-blue-400"><CheckCircle className="mr-1 h-3 w-3" />Confirmada</Badge>;
     case "Pagado":
-      return <Badge variant="default" className="bg-green-600/20 text-green-800 dark:bg-green-700/30 dark:text-green-300 border-green-600/30"><CreditCard className="mr-1 h-3 w-3" />Pagado</Badge>;
+      return <Badge variant="default" className="bg-green-600/20 text-green-700 dark:bg-green-700/30 dark:text-green-300 border-green-600/30"><CreditCard className="mr-1 h-3 w-3" />Pagado</Badge>;
+    case "Cancelada":
+      return <Badge variant="destructive" className="bg-red-500/10 text-red-700 dark:bg-red-700/30 dark:text-red-300 border-red-500/30"><XCircle className="mr-1 h-3 w-3" />Cancelada</Badge>;
     default:
       return <Badge variant="secondary">{status}</Badge>;
   }
 };
 
-function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: ExpenseFormInput, onFormSubmit: (data: ExpenseFormInput) => Promise<void>, closeDialog: () => void }) {
+function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: ExpenseFormInput & {id: string}, onFormSubmit: (data: ExpenseFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<ExpenseFormInput>({
     resolver: zodResolver(ExpenseSchema),
     defaultValues: expense || {
@@ -45,41 +45,44 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
       description: '',
       amount: 0,
       vendor: '',
-      status: 'Enviado',
+      status: 'Borrador', // Default to Borrador
       receiptUrl: '',
     },
   });
+
+  const currentStatus = expense?.status;
+  const isPaidOrCancelled = currentStatus === 'Pagado' || currentStatus === 'Cancelada';
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
       <div>
         <Label htmlFor="date">Fecha</Label>
-        <Input id="date" type="date" {...register("date")} />
+        <Input id="date" type="date" {...register("date")} disabled={isPaidOrCancelled} />
         {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
       </div>
       <div>
         <Label htmlFor="category">Categoría</Label>
-        <Input id="category" {...register("category")} />
+        <Input id="category" {...register("category")} disabled={isPaidOrCancelled} />
         {errors.category && <p className="text-sm text-destructive mt-1">{errors.category.message}</p>}
       </div>
       <div>
         <Label htmlFor="description">Descripción</Label>
-        <Textarea id="description" {...register("description")} />
+        <Textarea id="description" {...register("description")} disabled={isPaidOrCancelled} />
         {errors.description && <p className="text-sm text-destructive mt-1">{errors.description.message}</p>}
       </div>
       <div>
         <Label htmlFor="amount">Monto (€)</Label>
-        <Input id="amount" type="number" step="0.01" {...register("amount")} />
+        <Input id="amount" type="number" step="0.01" {...register("amount", {valueAsNumber: true})} disabled={isPaidOrCancelled} />
         {errors.amount && <p className="text-sm text-destructive mt-1">{errors.amount.message}</p>}
       </div>
       <div>
         <Label htmlFor="vendor">Proveedor (Opcional)</Label>
-        <Input id="vendor" {...register("vendor")} />
+        <Input id="vendor" {...register("vendor")} disabled={isPaidOrCancelled} />
         {errors.vendor && <p className="text-sm text-destructive mt-1">{errors.vendor.message}</p>}
       </div>
        <div>
         <Label htmlFor="receiptUrl">URL del Recibo (Opcional)</Label>
-        <Input id="receiptUrl" type="url" {...register("receiptUrl")} placeholder="https://ejemplo.com/recibo.pdf"/>
+        <Input id="receiptUrl" type="url" {...register("receiptUrl")} placeholder="https://ejemplo.com/recibo.pdf" disabled={isPaidOrCancelled}/>
         {errors.receiptUrl && <p className="text-sm text-destructive mt-1">{errors.receiptUrl.message}</p>}
       </div>
       <div>
@@ -88,15 +91,15 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
           name="status"
           control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value}>
+            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isPaidOrCancelled || currentStatus === 'Cancelada' || (currentStatus === 'Confirmada' && field.value !== 'Cancelada')}>
               <SelectTrigger id="status">
                 <SelectValue placeholder="Seleccionar estado..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Enviado">Enviado</SelectItem>
-                <SelectItem value="Aprobado">Aprobado</SelectItem>
-                <SelectItem value="Rechazado">Rechazado</SelectItem>
-                <SelectItem value="Pagado">Pagado</SelectItem>
+                {(field.value === 'Borrador' || !expense) && <SelectItem value="Borrador">Borrador</SelectItem>}
+                {(field.value === 'Borrador' || field.value === 'Confirmada') && !isPaidOrCancelled && <SelectItem value="Confirmada">Confirmada</SelectItem>}
+                {!isPaidOrCancelled && <SelectItem value="Cancelada">Cancelada</SelectItem>}
+                {isPaidOrCancelled && <SelectItem value={currentStatus!} disabled>{currentStatus}</SelectItem>}
               </SelectContent>
             </Select>
           )}
@@ -105,7 +108,7 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || isPaidOrCancelled || (currentStatus === 'Confirmada' && watch('status') !== 'Cancelada')}>
           {isSubmitting ? (expense ? "Guardando..." : "Añadiendo...") : (expense ? "Guardar Cambios" : "Añadir Gasto")}
         </Button>
       </DialogFooter>
@@ -114,12 +117,14 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
 }
 
 export default function ExpensesPage() {
-  const [expenses, setExpenses] = useState<ExpenseFormInput[]>([]);
+  const [expenses, setExpenses] = useState<(ExpenseFormInput & { id: string })[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingExpense, setEditingExpense] = useState<ExpenseFormInput | undefined>(undefined);
+  const [editingExpense, setEditingExpense] = useState<(ExpenseFormInput & { id: string }) | undefined>(undefined);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<ExpenseFormInput["status"] | "all">("all");
+
 
   const refreshExpenses = async () => {
     const serverExpenses = await getExpenses();
@@ -166,29 +171,20 @@ export default function ExpensesPage() {
     setDeletingExpenseId(null);
   };
 
-  const openEditDialog = (expense: ExpenseFormInput) => {
+  const openEditDialog = (expense: ExpenseFormInput & { id: string }) => {
     setEditingExpense(expense);
     setIsEditDialogOpen(true);
   };
 
-  const handleStatusUpdate = async (expenseId: string, newStatus: ExpenseFormInput["status"]) => {
-    const expenseToUpdate = expenses.find(ex => ex.id === expenseId);
-    if (!expenseToUpdate) return;
-    const response = await updateExpense({ ...expenseToUpdate, status: newStatus });
-    if (response.success) {
-      toast({ title: "Éxito", description: `Gasto "${expenseToUpdate.description.substring(0,20)}..." actualizado a ${newStatus}.` });
-      refreshExpenses();
-    } else {
-      toast({ variant: "destructive", title: "Error", description: response.message || "No se pudo actualizar el estado." });
-    }
-  };
+  const totalExpensesThisMonth = expenses
+    .filter(ex => ex.status === 'Pagado' && new Date(ex.date).getMonth() === new Date().getMonth() && new Date(ex.date).getFullYear() === new Date().getFullYear())
+    .reduce((sum, ex) => sum + ex.amount, 0);
+  const pendingConfirmationCount = expenses.filter(ex => ex.status === "Borrador").length; // Asumiendo que 'Borrador' es el estado inicial antes de 'Confirmada'
+  const pendingConfirmationAmount = expenses.filter(ex => ex.status === "Borrador").reduce((sum, ex) => sum + ex.amount, 0);
 
 
-  const totalExpensesThisMonth = expenses.reduce((sum, ex) => sum + ex.amount, 0); // Simplified: should filter by month
-  const pendingApprovalCount = expenses.filter(ex => ex.status === "Enviado").length;
-  const pendingApprovalAmount = expenses.filter(ex => ex.status === "Enviado").reduce((sum, ex) => sum + ex.amount, 0);
-  const rejectedCount = expenses.filter(ex => ex.status === "Rechazado").length;
-  const rejectedAmount = expenses.filter(ex => ex.status === "Rechazado").reduce((sum, ex) => sum + ex.amount, 0);
+  const filteredExpenses = expenses.filter(ex => activeTab === "all" || ex.status === activeTab);
+
 
   return (
     <div className="space-y-6">
@@ -224,32 +220,30 @@ export default function ExpensesPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Gastos Totales (Este Mes)</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Gastos Pagados (Este Mes)</CardTitle>
                 <DollarSign className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">€{totalExpensesThisMonth.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">+5.2% del mes pasado</p>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Pendiente de Aprobación</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Pendiente de Confirmación</CardTitle>
                 <Hourglass className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{pendingApprovalCount}</div>
-                <p className="text-xs text-muted-foreground">€{pendingApprovalAmount.toFixed(2)} en total</p>
+                <div className="text-2xl font-bold">{pendingConfirmationCount}</div>
+                <p className="text-xs text-muted-foreground">€{pendingConfirmationAmount.toFixed(2)} en total</p>
               </CardContent>
             </Card>
-            <Card className="border-border">
+             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Gastos Rechazados</CardTitle>
-                <AlertTriangle className="h-5 w-5 text-destructive" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">Gastos Cancelados</CardTitle>
+                 <XCircle className="h-5 w-5 text-destructive" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{rejectedCount}</div>
-                 <p className="text-xs text-muted-foreground">€{rejectedAmount.toFixed(2)} en total</p>
+                <div className="text-2xl font-bold">{expenses.filter(ex => ex.status === 'Cancelada').length}</div>
               </CardContent>
             </Card>
           </div>
@@ -263,113 +257,102 @@ export default function ExpensesPage() {
               <Filter className="mr-2 h-5 w-5" /> Filtrar
             </Button>
           </div>
-
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Descripción</TableHead>
-                  <TableHead>Proveedor</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Recibo</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {expenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell>{expense.date}</TableCell>
-                    <TableCell>{expense.category}</TableCell>
-                    <TableCell className="font-medium max-w-xs truncate">{expense.description}</TableCell>
-                    <TableCell>{expense.vendor || "N/D"}</TableCell>
-                    <TableCell className="text-right">€{expense.amount.toFixed(2)}</TableCell>
-                    <TableCell>{getStatusBadge(expense.status)}</TableCell>
-                    <TableCell>
-                      {expense.receiptUrl ? (
-                        <Button variant="link" size="sm" asChild className="p-0 h-auto">
-                          <Link href={expense.receiptUrl} target="_blank" rel="noopener noreferrer">Ver</Link>
-                        </Button>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">Ninguno</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-5 w-5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(expense)}>
-                            <Edit className="mr-2 h-4 w-4" /> Ver/Editar
-                          </DropdownMenuItem>
-                          {expense.status === "Enviado" && (
-                            <>
-                              <DropdownMenuItem onClick={() => handleStatusUpdate(expense.id!, "Aprobado")}>
-                                <CheckCircle className="mr-2 h-4 w-4" /> Aprobar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleStatusUpdate(expense.id!, "Rechazado")} className="text-amber-600 focus:text-amber-700 dark:text-amber-500 dark:focus:text-amber-400">
-                                <XCircle className="mr-2 h-4 w-4" /> Rechazar
-                              </DropdownMenuItem>
-                            </>
+          <Tabs defaultValue="all" onValueChange={(value) => setActiveTab(value as ExpenseFormInput["status"] | "all")}>
+            <TabsList className="grid w-full grid-cols-3 md:grid-cols-5 mb-4">
+              <TabsTrigger value="all">Todos</TabsTrigger>
+              <TabsTrigger value="Borrador">Borrador</TabsTrigger>
+              <TabsTrigger value="Confirmada">Confirmada</TabsTrigger>
+              <TabsTrigger value="Pagado">Pagado</TabsTrigger>
+              <TabsTrigger value="Cancelada">Cancelada</TabsTrigger>
+            </TabsList>
+            <TabsContent value={activeTab}>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Proveedor</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Recibo</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredExpenses.map((expense) => (
+                      <TableRow key={expense.id}>
+                        <TableCell>{expense.date}</TableCell>
+                        <TableCell>{expense.category}</TableCell>
+                        <TableCell className="font-medium max-w-xs truncate">{expense.description}</TableCell>
+                        <TableCell>{expense.vendor || "N/D"}</TableCell>
+                        <TableCell className="text-right">€{expense.amount.toFixed(2)}</TableCell>
+                        <TableCell>{getStatusBadge(expense.status)}</TableCell>
+                        <TableCell>
+                          {expense.receiptUrl ? (
+                            <Button variant="link" size="sm" asChild className="p-0 h-auto">
+                              <Link href={expense.receiptUrl} target="_blank" rel="noopener noreferrer">Ver</Link>
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">Ninguno</span>
                           )}
-                          {expense.status === "Aprobado" && (
-                            <DropdownMenuItem onClick={() => handleStatusUpdate(expense.id!, "Pagado")}>
-                                <CreditCard className="mr-2 h-4 w-4" /> Marcar como Pagado
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                               <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingExpenseId(expense.id!)}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive">
-                                <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" disabled={expense.status === 'Pagado' || expense.status === 'Cancelada'}>
+                                <MoreHorizontal className="h-5 w-5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(expense as ExpenseFormInput & { id: string })} disabled={expense.status === 'Pagado' || expense.status === 'Cancelada'}>
+                                <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                               </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Esta acción no se puede deshacer. Se eliminará permanentemente el gasto: "{expenses.find(ex => ex.id === deletingExpenseId)?.description}".
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => setDeletingExpenseId(null)}>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {expenses.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                      Aún no se han registrado gastos.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                              <DropdownMenuSeparator />
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                   <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingExpenseId(expense.id!)}} className="text-destructive dark:text-destructive-foreground dark:focus:bg-destructive/80 focus:bg-destructive/10 focus:text-destructive" disabled={!['Borrador', 'Cancelada'].includes(expense.status)}>
+                                    <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                                  </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Esta acción no se puede deshacer. Se eliminará permanentemente el gasto: "{expenses.find(ex => ex.id === deletingExpenseId)?.description}".
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setDeletingExpenseId(null)}>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive hover:bg-destructive/90">Eliminar</AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredExpenses.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                          No hay gastos en esta categoría.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
         <CardFooter className="flex justify-between items-center">
-          <p className="text-sm text-muted-foreground">Mostrando {expenses.length} de {expenses.length} gastos.</p>
-          {/* Pagination placeholder */}
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>Anterior</Button>
-            <Button variant="outline" size="sm" disabled>Siguiente</Button>
-          </div>
+          <p className="text-sm text-muted-foreground">Mostrando {filteredExpenses.length} de {expenses.length} gastos.</p>
         </CardFooter>
       </Card>
 
-       {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { setIsEditDialogOpen(isOpen); if (!isOpen) setEditingExpense(undefined);}}>
+       <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { setIsEditDialogOpen(isOpen); if (!isOpen) setEditingExpense(undefined);}}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Editar Gasto</DialogTitle>
@@ -381,5 +364,3 @@ export default function ExpensesPage() {
     </div>
   );
 }
-
-    

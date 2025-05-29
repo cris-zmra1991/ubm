@@ -10,7 +10,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Store, PlusCircle, Search, Filter, MoreHorizontal, Edit, Trash2, FileText, CreditCard, CheckCircle, XCircle, Hourglass, PackageCheck, Trash } from "lucide-react";
+import { Store, PlusCircle, Search, Filter, MoreHorizontal, Edit, Trash2, FileText, CreditCard, CheckCircle, XCircle, Hourglass, Trash } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
@@ -28,9 +28,7 @@ const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
   switch (status) {
     case "Borrador": return <Badge variant="outline" className="border-yellow-500/70 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"><Hourglass className="mr-1 h-3 w-3" />Borrador</Badge>;
     case "Confirmada": return <Badge variant="outline" className="border-blue-500/70 bg-blue-500/10 text-blue-700 dark:text-blue-400"><CheckCircle className="mr-1 h-3 w-3" />Confirmada</Badge>;
-    case "Enviada": return <Badge variant="outline" className="border-purple-500/70 bg-purple-500/10 text-purple-700 dark:text-purple-400"><Store className="mr-1 h-3 w-3" />Enviada</Badge>;
-    case "Entregada": return <Badge variant="outline" className="border-teal-500/70 bg-teal-500/10 text-teal-700 dark:text-teal-400"><PackageCheck className="mr-1 h-3 w-3" />Entregada</Badge>;
-    case "Pagada": return <Badge variant="default" className="bg-green-600/20 text-green-700 dark:bg-green-700/30 dark:text-green-300 border-green-600/30"><CreditCard className="mr-1 h-3 w-3" />Pagada</Badge>;
+    case "Pagado": return <Badge variant="default" className="bg-green-600/20 text-green-700 dark:bg-green-700/30 dark:text-green-300 border-green-600/30"><CreditCard className="mr-1 h-3 w-3" />Pagado</Badge>;
     case "Cancelada": return <Badge variant="destructive" className="bg-red-500/10 text-red-700 dark:bg-red-700/30 dark:text-red-300 border-red-500/30"><XCircle className="mr-1 h-3 w-3" />Cancelada</Badge>;
     default: return <Badge variant="secondary">{status}</Badge>;
   }
@@ -67,15 +65,15 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
 
   const watchedItems = watch("items");
   const currentStatus = watch("status");
-  const orderIsPaid = saleOrder?.status === 'Pagado';
-  const orderIsDeliveredOrBeyond = saleOrder && ['Entregada', 'Pagada'].includes(saleOrder.status);
+  const orderIsPaidOrCancelled = saleOrder?.status === 'Pagado' || saleOrder?.status === 'Cancelada';
+  const orderIsConfirmedOrBeyond = saleOrder && (saleOrder.status === 'Confirmada' || saleOrder.status === 'Pagado' || saleOrder.status === 'Cancelada');
   const isFormEditable = !saleOrder || saleOrder.status === 'Borrador';
 
 
   const handleInventoryItemChange = (itemIndex: number, itemId: string) => {
     const selectedItem = inventoryItems.find(invItem => invItem.id === itemId);
     if (selectedItem) {
-      setValue(`items.${itemIndex}.unitPrice`, selectedItem.salePrice ?? selectedItem.unitPrice);
+      setValue(`items.${itemIndex}.unitPrice`, selectedItem.salePrice ?? selectedItem.unitPrice); // Precio de venta del inventario
     }
   };
 
@@ -86,7 +84,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
   }, 0);
 
   const processFormSubmit = async (data: SaleOrderFormInput) => {
-    clearErrors("itemErrors" as any);
+    clearErrors("itemErrors" as any); // Limpiar errores de item personalizados
     const response = await onFormSubmit(data);
     if (!response.success && response.itemErrors) {
         response.itemErrors.forEach(err => {
@@ -105,7 +103,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
             name="customerId"
             control={control}
             render={({ field }) => (
-              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!isFormEditable || orderIsPaid}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!isFormEditable || orderIsPaidOrCancelled}>
                 <SelectTrigger id="customerId"><SelectValue placeholder="Seleccionar cliente..." /></SelectTrigger>
                 <SelectContent>
                   {clientContacts.map(contact => (
@@ -119,13 +117,13 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
         </div>
         <div>
           <Label htmlFor="date">Fecha de Venta</Label>
-          <Input id="date" type="date" {...register("date")} disabled={!isFormEditable || orderIsPaid} />
+          <Input id="date" type="date" {...register("date")} disabled={!isFormEditable || orderIsPaidOrCancelled} />
           {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
         </div>
       </div>
        <div>
         <Label htmlFor="description">Descripción</Label>
-        <Textarea id="description" {...register("description")} placeholder="Ej. Venta de servicios de consultoría" disabled={!isFormEditable || orderIsPaid}/>
+        <Textarea id="description" {...register("description")} placeholder="Ej. Venta de servicios de consultoría" disabled={!isFormEditable || orderIsPaidOrCancelled}/>
         {errors.description && <p className="text-sm text-destructive mt-1">{errors.description.message}</p>}
       </div>
       <div>
@@ -134,20 +132,13 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
           name="status"
           control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={orderIsPaid}>
+            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={orderIsPaidOrCancelled || currentStatus === 'Cancelada' || (saleOrder?.status === 'Confirmada' && field.value !== 'Cancelada')}>
               <SelectTrigger id="status"><SelectValue placeholder="Seleccionar estado..." /></SelectTrigger>
               <SelectContent>
                  {(currentStatus === 'Borrador' || !saleOrder) && <SelectItem value="Borrador">Borrador</SelectItem>}
-                
-                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada') && <SelectItem value="Confirmada">Confirmada</SelectItem>}
-
-                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada' && currentStatus !== 'Borrador') && <SelectItem value="Enviada">Enviada</SelectItem>}
-
-                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada' && currentStatus !== 'Borrador' && currentStatus !== 'Confirmada') && <SelectItem value="Entregada">Entregada</SelectItem>}
-                
-                {!orderIsPaid && <SelectItem value="Cancelada">Cancelada</SelectItem>}
-                
-                {orderIsPaid && <SelectItem value="Pagado" disabled>Pagado</SelectItem>}
+                 {(currentStatus === 'Borrador' || currentStatus === 'Confirmada') && !orderIsPaidOrCancelled && <SelectItem value="Confirmada">Confirmada</SelectItem>}
+                 {!orderIsPaidOrCancelled && <SelectItem value="Cancelada">Cancelada</SelectItem>}
+                 {orderIsPaidOrCancelled && <SelectItem value={saleOrder!.status} disabled>{saleOrder!.status}</SelectItem>}
               </SelectContent>
             </Select>
           )}
@@ -171,7 +162,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
                       handleInventoryItemChange(index, value);
                     }}
                     defaultValue={selectField.value}
-                    disabled={!isFormEditable || orderIsPaid}
+                    disabled={!isFormEditable || orderIsConfirmedOrBeyond}
                   >
                     <SelectTrigger><SelectValue placeholder="Seleccionar artículo..." /></SelectTrigger>
                     <SelectContent>
@@ -183,20 +174,21 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
                 )}
               />
               {errors.items?.[index]?.inventoryItemId && <p className="text-sm text-destructive mt-1">{errors.items[index]?.inventoryItemId?.message}</p>}
+              {/* Mostrar errores de stock personalizados aquí */}
               {errors.items?.[index]?.quantity && errors.items[index]?.quantity?.type === 'manual' && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
             </div>
             <div className="col-span-2">
               <Label htmlFor={`items.${index}.quantity`} className="text-xs">Cantidad</Label>
-              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!isFormEditable || orderIsPaid} />
+              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!isFormEditable || orderIsConfirmedOrBeyond} />
               {errors.items?.[index]?.quantity && errors.items[index]?.quantity?.type !== 'manual' && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
             </div>
             <div className="col-span-3">
               <Label htmlFor={`items.${index}.unitPrice`} className="text-xs">Precio Unit. (€)</Label>
-              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!isFormEditable || orderIsPaid}/>
+              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!isFormEditable || orderIsConfirmedOrBeyond}/>
               {errors.items?.[index]?.unitPrice && <p className="text-sm text-destructive mt-1">{errors.items[index]?.unitPrice?.message}</p>}
             </div>
             <div className="col-span-2 flex items-end">
-              {(isFormEditable && !orderIsPaid) && fields.length > 1 && (
+              {(isFormEditable && !orderIsConfirmedOrBeyond) && fields.length > 1 && (
                <Button type="button" variant="ghost" size="sm" onClick={() => remove(index)} className="text-destructive hover:text-destructive">
                 <Trash className="h-4 w-4" />
               </Button>
@@ -204,7 +196,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
             </div>
           </div>
         ))}
-        {(isFormEditable && !orderIsPaid) && (
+        {(isFormEditable && !orderIsConfirmedOrBeyond) && (
             <Button type="button" variant="outline" size="sm" onClick={() => append({ inventoryItemId: '', quantity: 1, unitPrice: 0 })}>
             <PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo
             </Button>
@@ -220,7 +212,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting || orderIsPaid}>
+        <Button type="submit" disabled={isSubmitting || orderIsPaidOrCancelled || (saleOrder?.status === 'Confirmada' && currentStatus !== 'Cancelada')}>
           {isSubmitting ? (saleOrder ? "Guardando..." : "Creando...") : (saleOrder ? "Guardar Cambios" : "Crear Venta")}
         </Button>
       </DialogFooter>
@@ -238,17 +230,22 @@ export default function SalesPage() {
   const [editingSaleOrder, setEditingSaleOrder] = useState<AppSaleOrder | undefined>(undefined);
   const [deletingSaleOrderId, setDeletingSaleOrderId] = useState<string | null>(null);
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState<SaleOrderFormInput["status"] | "all">("all");
 
   const refreshData = async () => {
-    const [serverSOs, serverInvItems, serverClientContacts] = await Promise.all([
-        getSaleOrders(),
-        getInventoryItems(),
-        getContacts({ type: 'Cliente' })
-    ]);
-    setSalesOrders(serverSOs.map(so => ({ ...so, description: so.description || '', items: [] })));
-    setInventoryItems(serverInvItems);
-    setClientContacts(serverClientContacts);
+    try {
+        const [serverSOs, serverInvItems, serverClientContacts] = await Promise.all([
+            getSaleOrders(),
+            getInventoryItems(),
+            getContacts({ type: 'Cliente' })
+        ]);
+        setSalesOrders(serverSOs.map(so => ({ ...so, description: so.description || '', items: [] })));
+        setInventoryItems(serverInvItems);
+        setClientContacts(serverClientContacts);
+    } catch(error) {
+        toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los datos iniciales."});
+        console.error("Error refreshing sales data:", error);
+    }
   };
 
   useEffect(() => {
@@ -301,20 +298,25 @@ export default function SalesPage() {
   };
 
   const openEditDialog = async (soId: string) => {
-    const orderToEdit = await getSaleOrderById(soId);
-     if (orderToEdit) {
-        const itemsWithPrice = orderToEdit.items.map(item => ({
-            ...item,
-            unitPrice: item.unitPrice
-        }));
-        setEditingSaleOrder({...orderToEdit, description: orderToEdit.description || '', items: itemsWithPrice } as AppSaleOrder);
-        setIsEditDialogOpen(true);
-    } else {
-        toast({ variant: "destructive", title: "Error", description: "No se pudo cargar la orden para editar."});
+    try {
+        const orderToEdit = await getSaleOrderById(soId);
+        if (orderToEdit) {
+            const itemsWithPrice = orderToEdit.items.map(item => ({
+                ...item,
+                unitPrice: item.unitPrice
+            }));
+            setEditingSaleOrder({...orderToEdit, description: orderToEdit.description || '', items: itemsWithPrice } as AppSaleOrder);
+            setIsEditDialogOpen(true);
+        } else {
+            toast({ variant: "destructive", title: "Error", description: "No se pudo cargar la orden para editar."});
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Error al cargar la orden para editar."});
+        console.error("Error fetching sale order for edit:", error);
     }
   };
 
-  const filteredSalesOrders = salesOrders.filter(so => activeTab === "all" || so.status.toLowerCase() === activeTab.toLowerCase());
+  const filteredSalesOrders = salesOrders.filter(so => activeTab === "all" || so.status === activeTab);
 
 
   return (
@@ -358,14 +360,12 @@ export default function SalesPage() {
             </Button>
           </div>
 
-          <Tabs defaultValue="all" onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3 md:grid-cols-7 mb-4">
+          <Tabs defaultValue="all" onValueChange={(value) => setActiveTab(value as SaleOrderFormInput["status"] | "all")}>
+            <TabsList className="grid w-full grid-cols-3 md:grid-cols-5 mb-4">
               <TabsTrigger value="all">Todas</TabsTrigger>
               <TabsTrigger value="Borrador">Borrador</TabsTrigger>
               <TabsTrigger value="Confirmada">Confirmada</TabsTrigger>
-              <TabsTrigger value="Enviada">Enviada</TabsTrigger>
-              <TabsTrigger value="Entregada">Entregada</TabsTrigger>
-              <TabsTrigger value="Pagada">Pagada</TabsTrigger>
+              <TabsTrigger value="Pagado">Pagado</TabsTrigger>
               <TabsTrigger value="Cancelada">Cancelada</TabsTrigger>
             </TabsList>
 
@@ -400,7 +400,7 @@ export default function SalesPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEditDialog(sale.id!)} disabled={sale.status === 'Pagado'}>
+                                <DropdownMenuItem onClick={() => openEditDialog(sale.id!)} disabled={sale.status === 'Pagado' || sale.status === 'Cancelada'}>
                                   <Edit className="mr-2 h-4 w-4" /> Ver/Editar
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
@@ -444,7 +444,7 @@ export default function SalesPage() {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar Venta / Factura: {editingSaleOrder?.invoiceNumber}</DialogTitle>
-            <DialogDescription>Actualiza los detalles de la venta. La edición de artículos solo es posible si la venta está en estado "Borrador".</DialogDescription>
+            <DialogDescription>Actualiza los detalles de la venta.</DialogDescription>
           </DialogHeader>
           {editingSaleOrder && <SaleOrderForm saleOrder={editingSaleOrder} inventoryItems={inventoryItems} clientContacts={clientContacts} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingSaleOrder(undefined);}} />}
         </DialogContent>
@@ -452,5 +452,3 @@ export default function SalesPage() {
     </div>
   );
 }
-
-    
