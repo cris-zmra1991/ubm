@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
 import type { Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { PurchaseOrderSchema, type PurchaseOrderItemFormInput } from '../schemas/purchases.schemas';
-import { addJournalEntry } from './accounting.actions'; // Para asientos automáticos
+import { addJournalEntry } from './accounting.actions';
 
 export type PurchaseOrderFormInput = z.infer<typeof PurchaseOrderSchema>;
 
@@ -21,23 +21,18 @@ export interface PurchaseOrderWithDetails extends Omit<PurchaseOrderFormInput, '
   id: string;
   poNumber: string;
   totalAmount: number;
-  vendorId: string; // Asegurarse que sea string
+  vendorId: string; 
   vendorName?: string;
-  description?: string; // Asegurar que esté aquí
+  description: string; 
   items: (PurchaseOrderItemFormInput & { itemName?: string; itemSku?: string })[];
 }
 
-// TODO: SQL - CREATE TABLE purchase_orders (id INT AUTO_INCREMENT PRIMARY KEY, poNumber VARCHAR(255) NOT NULL UNIQUE, vendor_id INT NOT NULL, date DATE NOT NULL, description TEXT NOT NULL, totalAmount DECIMAL(10, 2) NOT NULL, status ENUM('Borrador', 'Confirmada', 'Enviada', 'Recibida', 'Cancelada', 'Pagado') NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, FOREIGN KEY (vendor_id) REFERENCES contacts(id));
-// TODO: SQL - CREATE TABLE purchase_order_items (id INT AUTO_INCREMENT PRIMARY KEY, purchase_order_id INT NOT NULL, inventory_item_id INT NOT NULL, quantity INT NOT NULL, unit_price DECIMAL(10, 2) NOT NULL, total_item_price DECIMAL(10,2) NOT NULL, FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE, FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id));
 
 async function generatePoNumber(connection: Connection): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  // const day = now.getDate().toString().padStart(2, '0'); // No usar el día para menos frecuencia de reseteo
-
-  // TODO: SQL - Considerar una secuencia en la base de datos o una tabla de contadores para mayor robustez.
-  // Contar las órdenes del mes actual para el secuencial.
+  
   const [rows] = await connection.query<RowDataPacket[]>(
     "SELECT COUNT(*) as count FROM purchase_orders WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?",
     [year, month]
@@ -97,11 +92,11 @@ export async function addPurchaseOrder(
         [purchaseOrderId, parseInt(item.inventoryItemId), item.quantity, item.unitPrice, totalItemPrice]
       );
     }
+    
+    const isConfirmedOrReceived = ['Confirmada', 'Recibida'].includes(status);
 
-    // Si la orden se confirma o recibe, generar asiento contable y/o ajustar stock
-    if (status === 'Confirmada' || status === 'Recibida') {
-      // TODO: Definir códigos de cuenta por defecto en un lugar centralizado o variables de entorno
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo: Cuentas por Pagar Proveedores
+    if (isConfirmedOrReceived) {
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; 
 
       for (const item of items) {
         const [invItemRows] = await connection.query<RowDataPacket[]>(
@@ -123,7 +118,7 @@ export async function addPurchaseOrder(
 
         await addJournalEntry({
           date,
-          entryNumber: '', // Se generará automáticamente
+          entryNumber: '', 
           description: `Compra OC ${poNumber}: ${description}`,
           debitAccountCode: inventoryAccountCode,
           creditAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE,
@@ -144,8 +139,8 @@ export async function addPurchaseOrder(
     await connection.commit();
 
     revalidatePath('/purchases', 'layout');
-    revalidatePath('/inventory', 'layout');
-    revalidatePath('/accounting', 'layout');
+    if (status === 'Recibida' || isConfirmedOrReceived) revalidatePath('/inventory', 'layout');
+    if (isConfirmedOrReceived) revalidatePath('/accounting', 'layout');
     if (status === 'Recibida') revalidatePath('/payments', 'layout');
 
     return {
@@ -192,7 +187,7 @@ export async function updatePurchaseOrder(
   }
 
   const { id } = data; 
-  const { vendorId, date, status, description, items } = validatedFields.data; // 'items' se usa ahora
+  const { vendorId, date, status, description, items } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
@@ -210,13 +205,16 @@ export async function updatePurchaseOrder(
     const currentOrder = currentOrderRows[0];
     const oldStatus = currentOrder.status;
 
-    // No permitir editar si ya está Pagada
-    if (oldStatus === 'Pagado') {
+    if (oldStatus === 'Pagado' && status !== 'Pagado') {
         await connection.rollback();
-        return { success: false, message: 'No se pueden editar órdenes de compra que ya han sido pagadas.' };
+        return { success: false, message: 'No se puede cambiar el estado de una orden ya pagada.' };
+    }
+    if (status === 'Pagado' && oldStatus !== 'Pagado') {
+        await connection.rollback();
+        return { success: false, message: 'El estado "Pagado" solo se puede establecer desde el módulo de Pagos.' };
     }
 
-    // Recalcular totalAmount basado en los items actuales si la orden está en Borrador
+
     let newTotalAmount = parseFloat(currentOrder.totalAmount);
     if (oldStatus === 'Borrador' && status === 'Borrador') {
         newTotalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
@@ -228,9 +226,7 @@ export async function updatePurchaseOrder(
       [parseInt(vendorId), date, description, newTotalAmount, status, parseInt(id)]
     );
 
-    // Si la orden estaba en Borrador y se actualizan items
-    if (oldStatus === 'Borrador' && status === 'Borrador') {
-        // Eliminar items existentes y reinsertar los nuevos
+    if (oldStatus === 'Borrador' && (status === 'Borrador' || status === 'Confirmada' || status === 'Recibida' || status === 'Enviada')) {
         await connection.query('DELETE FROM purchase_order_items WHERE purchase_order_id = ?', [parseInt(id)]);
         for (const item of items) {
           const totalItemPrice = item.quantity * item.unitPrice;
@@ -241,25 +237,29 @@ export async function updatePurchaseOrder(
         }
     }
 
-    // Lógica de ajuste de stock y asientos si el estado cambia
     const isBecomingReceived = status === 'Recibida' && oldStatus !== 'Recibida';
-    const isBecomingConfirmedFromBorrador = (status === 'Confirmada' || status === 'Recibida') && oldStatus === 'Borrador';
-
-    if (isBecomingReceived || isBecomingConfirmedFromBorrador) {
-      const [orderItemsRows] = await connection.query<RowDataPacket[]>(
-        'SELECT inventory_item_id, quantity, unit_price FROM purchase_order_items WHERE purchase_order_id = ?',
-        [id]
+    const wasBorradorNowConfirmedOrReceived = (status === 'Confirmada' || status === 'Recibida') && oldStatus === 'Borrador';
+    
+    if (isBecomingReceived) {
+      const [orderItemsRowsForStock] = await connection.query<RowDataPacket[]>(
+        'SELECT inventory_item_id, quantity FROM purchase_order_items WHERE purchase_order_id = ?', [id]
       );
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo
-
-      for (const item of orderItemsRows) {
-        if (isBecomingReceived) {
-          await connection.query(
+      for (const item of orderItemsRowsForStock) {
+         await connection.query(
             'UPDATE inventory_items SET currentStock = currentStock + ? WHERE id = ?',
             [item.quantity, item.inventory_item_id]
           );
-        }
-        if (isBecomingConfirmedFromBorrador) {
+      }
+    }
+
+    if (wasBorradorNowConfirmedOrReceived) {
+      const [orderItemsRowsForAccounting] = await connection.query<RowDataPacket[]>(
+        'SELECT inventory_item_id, quantity, unit_price FROM purchase_order_items WHERE purchase_order_id = ?',
+        [id]
+      );
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; 
+
+      for (const item of orderItemsRowsForAccounting) {
            const [invItemRows] = await connection.query<RowDataPacket[]>(
             'SELECT default_debit_account_id FROM inventory_items WHERE id = ?', [item.inventory_item_id]
           );
@@ -279,17 +279,15 @@ export async function updatePurchaseOrder(
             debitAccountCode: inventoryAccountCode, creditAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE,
             amount: item.quantity * parseFloat(item.unit_price),
           }, connection);
-        }
       }
     }
-    // TODO: Reversión de stock y asientos si una orden 'Recibida' o 'Confirmada' se cancela.
-
+    
     await connection.commit();
 
     if (result.affectedRows > 0) {
       revalidatePath('/purchases', 'layout');
-      if (isBecomingReceived) revalidatePath('/inventory', 'layout');
-      if (isBecomingConfirmedFromBorrador) revalidatePath('/accounting', 'layout');
+      if (isBecomingReceived || wasBorradorNowConfirmedOrReceived) revalidatePath('/inventory', 'layout');
+      if (wasBorradorNowConfirmedOrReceived) revalidatePath('/accounting', 'layout');
       if (status === 'Recibida' || oldStatus === 'Recibida') revalidatePath('/payments', 'layout');
       return {
         success: true,
@@ -297,7 +295,6 @@ export async function updatePurchaseOrder(
         purchaseOrder: { ...validatedFields.data, id, poNumber: currentOrder.poNumber, totalAmount: newTotalAmount },
       };
     } else {
-      // Si no hubo filas afectadas pero no hubo error, podría ser que los datos eran los mismos.
       return { success: true, message: 'Orden de Compra sin cambios detectados.', purchaseOrder: { ...validatedFields.data, id, poNumber: currentOrder.poNumber, totalAmount: newTotalAmount } };
     }
   } catch (error: any) {
@@ -326,12 +323,6 @@ export async function deletePurchaseOrder(poId: string): Promise<PurchaseOrderAc
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // TODO: Lógica para revertir asientos contables y ajustes de stock si es necesario antes de eliminar.
-    // Por ejemplo, si la orden estaba 'Recibida', el stock de los items debería decrementarse.
-    // Si se generaron asientos contables, deberían revertirse. Esto puede ser complejo.
-    // Por ahora, solo se permite eliminar si está en 'Borrador' o 'Cancelada' desde la UI.
-    // La BD permitirá eliminarla si está en cascada, pero la lógica de negocio debería ser más estricta.
-
     const [orderStatusRows] = await connection.query<RowDataPacket[]>('SELECT status FROM purchase_orders WHERE id = ?', [parseInt(poId)]);
     if (orderStatusRows.length > 0) {
         const currentStatus = orderStatusRows[0].status;
@@ -339,6 +330,9 @@ export async function deletePurchaseOrder(poId: string): Promise<PurchaseOrderAc
             await connection.rollback();
             return { success: false, message: `No se puede eliminar una orden de compra en estado '${currentStatus}'. Considere cancelarla primero.`};
         }
+    } else {
+        await connection.rollback();
+        return { success: false, message: 'Orden de Compra no encontrada para eliminar.'};
     }
 
 
@@ -351,7 +345,6 @@ export async function deletePurchaseOrder(poId: string): Promise<PurchaseOrderAc
 
     if (result.affectedRows > 0) {
         revalidatePath('/purchases', 'layout');
-        // No es necesario revalidar inventario/contabilidad/pagos si solo se eliminan borradores/canceladas
         return {
           success: true,
           message: 'Orden de Compra eliminada exitosamente.',
@@ -373,7 +366,7 @@ export async function deletePurchaseOrder(poId: string): Promise<PurchaseOrderAc
 }
 
 
-export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string; description?: string})[]> {
+export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string; description: string})[]> {
   if (!pool) {
     return [];
   }
@@ -390,10 +383,10 @@ export async function getPurchaseOrders(): Promise<(Omit<PurchaseOrderFormInput,
         vendorId: row.vendorId.toString(),
         vendorName: row.vendorName,
         date: row.date,
-        description: row.description,
+        description: row.description || '',
         totalAmount: parseFloat(row.totalAmount),
         status: row.status,
-    })) as (Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string; description?: string})[];
+    })) as (Omit<PurchaseOrderFormInput, 'items' | 'vendorId'> & {id: string; poNumber: string; totalAmount: number; vendorName?: string; vendorId: string; description: string})[];
   } catch (error) {
     console.error('Error al obtener Órdenes de Compra (MySQL):', error);
     return [];
@@ -437,7 +430,7 @@ export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWit
             vendorId: orderData.vendorId.toString(),
             vendorName: orderData.vendorName,
             date: orderData.date,
-            description: orderData.description || '', // Asegurar que description no sea null
+            description: orderData.description || '',
             totalAmount: parseFloat(orderData.totalAmount),
             status: orderData.status,
             items: itemRows.map(item => ({
@@ -457,7 +450,6 @@ export async function getPurchaseOrderById(id: string): Promise<PurchaseOrderWit
 export async function getPurchasesLastMonthValue(): Promise<number> {
   if (!pool) { return 0; }
   try {
-    // Sumar solo las órdenes 'Pagado' o 'Recibida' (si se considera un compromiso de gasto)
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT SUM(totalAmount) as total FROM purchase_orders WHERE (status = 'Pagado' OR status = 'Recibida') AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
@@ -500,3 +492,5 @@ export async function updatePurchaseOrderStatus(id: string, status: PurchaseOrde
     }
   }
 }
+
+    

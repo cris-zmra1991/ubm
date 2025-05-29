@@ -13,7 +13,7 @@ export type SaleOrderFormInput = z.infer<typeof SaleOrderSchema>;
 export interface SaleOrderActionResponse {
   success: boolean;
   message: string;
-  errors?: any; // Podría ser z.ZodError<SaleOrderFormInput>['formErrors']['fieldErrors']
+  errors?: any; 
   saleOrder?: SaleOrderFormInput & { id: string; invoiceNumber: string; totalAmount: number };
   itemErrors?: { index: number; field: 'quantity' | 'inventoryItemId' | 'unitPrice'; message: string }[];
 }
@@ -24,12 +24,9 @@ export interface SaleOrderWithDetails extends Omit<SaleOrderFormInput, 'customer
   totalAmount: number;
   customerId: string;
   customerName?: string;
-  description?: string;
+  description: string;
   items: (SaleOrderItemFormInput & { itemName?: string; itemSku?: string; unitPrice: number })[];
 }
-
-// TODO: SQL - CREATE TABLE sale_orders (id INT AUTO_INCREMENT PRIMARY KEY, invoiceNumber VARCHAR(255) NOT NULL UNIQUE, customer_id INT NOT NULL, date DATE NOT NULL, description TEXT NULL, totalAmount DECIMAL(10, 2) NOT NULL, status ENUM('Borrador', 'Confirmada', 'Enviada', 'Entregada', 'Pagada', 'Cancelada') NOT NULL, FOREIGN KEY (customer_id) REFERENCES contacts(id));
-// TODO: SQL - CREATE TABLE sale_order_items (id INT AUTO_INCREMENT PRIMARY KEY, sale_order_id INT NOT NULL, inventory_item_id INT NOT NULL, quantity INT NOT NULL, unit_price DECIMAL(10, 2) NOT NULL, total_item_price DECIMAL(10,2) NOT NULL, FOREIGN KEY (sale_order_id) REFERENCES sale_orders(id) ON DELETE CASCADE, FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id));
 
 
 async function generateInvoiceNumber(connection: Connection): Promise<string> {
@@ -70,25 +67,26 @@ export async function addSaleOrder(
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // Validar stock antes de cualquier otra cosa
     const itemErrors: SaleOrderActionResponse['itemErrors'] = [];
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const [stockRows] = await connection.query<RowDataPacket[]>(
-        'SELECT currentStock, name FROM inventory_items WHERE id = ?',
-        [parseInt(item.inventoryItemId)]
-      );
-      if (stockRows.length === 0 || stockRows[0].currentStock < item.quantity) {
-        itemErrors.push({ index: i, field: 'quantity', message: `Stock insuficiente para ${stockRows[0]?.name || 'artículo desc.'} (Disp: ${stockRows[0]?.currentStock ?? 0})` });
-      }
-    }
-    if (itemErrors.length > 0) {
-      await connection.rollback();
-      return {
-        success: false, message: 'Stock insuficiente para uno o más artículos.',
-        errors: { items: ['Verifica las cantidades y el stock disponible.'] },
-        itemErrors: itemErrors,
-      };
+    if (['Confirmada', 'Enviada', 'Entregada'].includes(status)) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const [stockRows] = await connection.query<RowDataPacket[]>(
+            'SELECT currentStock, name FROM inventory_items WHERE id = ?',
+            [parseInt(item.inventoryItemId)]
+          );
+          if (stockRows.length === 0 || stockRows[0].currentStock < item.quantity) {
+            itemErrors.push({ index: i, field: 'quantity', message: `Stock insuficiente para ${stockRows[0]?.name || 'artículo desc.'} (Disp: ${stockRows[0]?.currentStock ?? 0})` });
+          }
+        }
+        if (itemErrors.length > 0) {
+          await connection.rollback();
+          return {
+            success: false, message: 'Stock insuficiente para uno o más artículos.',
+            errors: { items: ['Verifica las cantidades y el stock disponible.'] },
+            itemErrors: itemErrors,
+          };
+        }
     }
 
 
@@ -119,9 +117,8 @@ export async function addSaleOrder(
       );
     }
 
-    // Si la orden descuenta stock (Confirmada, Enviada, Entregada), ajustar stock y generar asientos
     if (['Confirmada', 'Enviada', 'Entregada'].includes(status)) {
-      const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02"; // Ejemplo: Cuentas por Cobrar
+      const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02"; 
 
       for (const item of items) {
         await connection.query(
@@ -146,22 +143,20 @@ export async function addSaleOrder(
         }
         const cogsAccountCode = cogsAccRows[0].code;
         const revenueAccountCode = revenueAccRows[0].code;
-        const inventoryAssetAccountCode = cogsAccountCode; // Asumiendo COGS y Activo Inventario son la misma para el item, o se necesita otra cuenta de activo.
+        const inventoryAssetAccountCode = cogsAccountCode; 
 
-        // 1. Ingreso por Venta
         await addJournalEntry({
           date, entryNumber: '', description: `Venta Fac ${invoiceNumber}: ${description}`,
           debitAccountCode: DEFAULT_ACCOUNTS_RECEIVABLE_CODE,
           creditAccountCode: revenueAccountCode,
-          amount: item.quantity * item.unitPrice, // item.unitPrice es el precio de venta del item en la orden
+          amount: item.quantity * item.unitPrice, 
         }, connection);
 
-        // 2. Costo de Venta
         const itemCost = parseFloat(invItemRows[0].costPrice);
         await addJournalEntry({
           date, entryNumber: '', description: `Costo Venta Fac ${invoiceNumber}: ${description}`,
           debitAccountCode: cogsAccountCode,
-          creditAccountCode: inventoryAssetAccountCode, // Inventario (Activo)
+          creditAccountCode: inventoryAssetAccountCode, 
           amount: item.quantity * itemCost,
         }, connection);
       }
@@ -170,9 +165,11 @@ export async function addSaleOrder(
     await connection.commit();
 
     revalidatePath('/sales', 'layout');
-    revalidatePath('/inventory', 'layout');
-    revalidatePath('/accounting', 'layout');
-    if (status === 'Entregada') revalidatePath('/payments', 'layout'); // Para que aparezca en pendientes
+    if (['Confirmada', 'Enviada', 'Entregada'].includes(status)) {
+        revalidatePath('/inventory', 'layout');
+        revalidatePath('/accounting', 'layout');
+    }
+    if (status === 'Entregada') revalidatePath('/payments', 'layout');
 
     return {
       success: true,
@@ -213,8 +210,8 @@ export async function updateSaleOrder(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { id, items: updatedItems } = data; // Se necesitan los items para re-validar stock si el estado cambia
-  const { customerId, date, status, description } = validatedFields.data;
+  const { id } = data; 
+  const { customerId, date, status, description, items } = validatedFields.data;
   let connection: Connection | null = null;
 
   try {
@@ -232,21 +229,47 @@ export async function updateSaleOrder(
     const currentOrder = currentOrderRows[0];
     const oldStatus = currentOrder.status;
 
+    if (oldStatus === 'Pagado' && status !== 'Pagado') {
+        await connection.rollback();
+        return { success: false, message: 'No se puede cambiar el estado de una orden ya pagada.' };
+    }
+     if (status === 'Pagado' && oldStatus !== 'Pagado') {
+        await connection.rollback();
+        return { success: false, message: 'El estado "Pagado" solo se puede establecer desde el módulo de Pagos.' };
+    }
+
+    let newTotalAmount = parseFloat(currentOrder.totalAmount);
+     if (oldStatus === 'Borrador' && status === 'Borrador') { // Solo recalcular si sigue en borrador
+        newTotalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+    }
+    
     const [result] = await connection.query<ResultSetHeader>(
-      'UPDATE sale_orders SET customer_id = ?, date = ?, description = ?, status = ? WHERE id = ?',
-      [parseInt(customerId), date, description, status, parseInt(id)]
+      'UPDATE sale_orders SET customer_id = ?, date = ?, description = ?, totalAmount = ?, status = ? WHERE id = ?',
+      [parseInt(customerId), date, description, newTotalAmount, status, parseInt(id)]
     );
+
+    // Si la orden estaba en Borrador y se actualizan items (y no pasa a un estado que bloquee edición de items)
+    if (oldStatus === 'Borrador' && (status === 'Borrador' || status === 'Confirmada' || status === 'Enviada' || status === 'Entregada')) {
+        await connection.query('DELETE FROM sale_order_items WHERE sale_order_id = ?', [parseInt(id)]);
+        for (const item of items) {
+            const totalItemPrice = item.quantity * item.unitPrice;
+            await connection.query<ResultSetHeader>(
+                'INSERT INTO sale_order_items (sale_order_id, inventory_item_id, quantity, unit_price, total_item_price) VALUES (?, ?, ?, ?, ?)',
+                [parseInt(id), parseInt(item.inventoryItemId), item.quantity, item.unitPrice, totalItemPrice]
+            );
+        }
+    }
+
 
     const descontarStockAhora = ['Confirmada', 'Enviada', 'Entregada'].includes(status);
     const yaSeDescontoStock = ['Confirmada', 'Enviada', 'Entregada', 'Pagada'].includes(oldStatus);
+    const itemErrors: SaleOrderActionResponse['itemErrors'] = [];
 
     if (descontarStockAhora && !yaSeDescontoStock) {
-      // Validar stock antes de descontar para los items actuales de la orden
       const [currentItemsRows] = await connection.query<RowDataPacket[]>(
         'SELECT inventory_item_id, quantity FROM sale_order_items WHERE sale_order_id = ?', [id]
       );
 
-      const itemErrors: SaleOrderActionResponse['itemErrors'] = [];
       for (let i = 0; i < currentItemsRows.length; i++) {
         const item = currentItemsRows[i];
         const [stockRows] = await connection.query<RowDataPacket[]>(
@@ -262,7 +285,6 @@ export async function updateSaleOrder(
         return { success: false, message: 'Stock insuficiente al cambiar estado.', errors: { status: ['No se puede cambiar el estado a uno que descuente stock si no hay suficiente.'] }, itemErrors };
       }
 
-      // Si la validación pasa, descontar stock y generar asientos
       const DEFAULT_ACCOUNTS_RECEIVABLE_CODE = "1.1.02";
       for (const item of currentItemsRows) {
         await connection.query(
@@ -270,40 +292,42 @@ export async function updateSaleOrder(
           [item.quantity, item.inventory_item_id]
         );
 
-        // Generar asientos si no se habían generado antes (ej. de Borrador a Confirmada)
         if (oldStatus === 'Borrador' || oldStatus === 'Cancelada') {
             const [invItemRows] = await connection.query<RowDataPacket[]>('SELECT default_debit_account_id, default_credit_account_id, unitPrice as costPrice FROM inventory_items WHERE id = ?', [item.inventory_item_id]);
-            if (invItemRows.length === 0 || !invItemRows[0].default_debit_account_id || !invItemRows[0].default_credit_account_id) { /* ... error handling ... */ continue; }
+            if (invItemRows.length === 0 || !invItemRows[0].default_debit_account_id || !invItemRows[0].default_credit_account_id) { continue; }
 
             const [cogsAccRows] = await connection.query<RowDataPacket[]>('SELECT code FROM chart_of_accounts WHERE id = ?', [invItemRows[0].default_debit_account_id]);
             const [revenueAccRows] = await connection.query<RowDataPacket[]>('SELECT code FROM chart_of_accounts WHERE id = ?', [invItemRows[0].default_credit_account_id]);
-            if (cogsAccRows.length === 0 || revenueAccRows.length === 0) { /* ... error handling ... */ continue; }
+            if (cogsAccRows.length === 0 || revenueAccRows.length === 0) { continue; }
 
             const cogsAccountCode = cogsAccRows[0].code;
             const revenueAccountCode = revenueAccRows[0].code;
             const inventoryAssetAccountCode = cogsAccountCode;
-            const itemSalePrice = (await connection.query<RowDataPacket[]>('SELECT unit_price FROM sale_order_items WHERE sale_order_id = ? AND inventory_item_id = ?', [id, item.inventory_item_id]))[0][0].unit_price;
+            const itemSalePriceResult = (await connection.query<RowDataPacket[]>('SELECT unit_price FROM sale_order_items WHERE sale_order_id = ? AND inventory_item_id = ?', [id, item.inventory_item_id]))[0];
+            const itemSalePrice = itemSalePriceResult[0].unit_price;
+
 
             await addJournalEntry({ date, entryNumber: '', description: `Venta Fac ${currentOrder.invoiceNumber}: ${description}`, debitAccountCode: DEFAULT_ACCOUNTS_RECEIVABLE_CODE, creditAccountCode: revenueAccountCode, amount: item.quantity * parseFloat(itemSalePrice) }, connection);
             await addJournalEntry({ date, entryNumber: '', description: `Costo Venta Fac ${currentOrder.invoiceNumber}: ${description}`, debitAccountCode: cogsAccountCode, creditAccountCode: inventoryAssetAccountCode, amount: item.quantity * parseFloat(invItemRows[0].costPrice) }, connection);
         }
       }
     }
-    // TODO: Lógica para REVERSAR stock y asientos si una orden se cancela DESPUÉS de que el stock fue descontado.
-
+    
     await connection.commit();
 
     if (result.affectedRows > 0) {
       revalidatePath('/sales', 'layout');
-      revalidatePath('/inventory', 'layout');
-      revalidatePath('/accounting', 'layout');
-      if (status === 'Entregada' || oldStatus === 'Entregada') revalidatePath('/payments', 'layout');
+      if (descontarStockAhora && !yaSeDescontoStock) {
+        revalidatePath('/inventory', 'layout');
+        revalidatePath('/accounting', 'layout');
+      }
+      if (status === 'Entregada' || oldStatus === 'Entregada' || status === 'Pagado') revalidatePath('/payments', 'layout');
       return {
         success: true, message: 'Orden de Venta actualizada exitosamente.',
-        saleOrder: { ...data, ...validatedFields.data, invoiceNumber: currentOrder.invoiceNumber, totalAmount: parseFloat(currentOrder.totalAmount) },
+        saleOrder: { ...data, ...validatedFields.data, invoiceNumber: currentOrder.invoiceNumber, totalAmount: newTotalAmount },
       };
     } else {
-      return { success: false, message: 'Orden de Venta no encontrada o sin cambios.' };
+      return { success: true, message: 'Orden de Venta sin cambios detectados.', saleOrder: { ...data, ...validatedFields.data, invoiceNumber: currentOrder.invoiceNumber, totalAmount: newTotalAmount } };
     }
   } catch (error: any) {
     if (connection) await connection.rollback();
@@ -318,7 +342,6 @@ export async function updateSaleOrder(
 }
 
 export async function deleteSaleOrder(soId: string): Promise<SaleOrderActionResponse> {
-  // ... (sin cambios, pero considerar revertir stock/asientos)
   if (!soId) {
     return { success: false, message: 'ID de Orden de Venta requerido para eliminar.' };
   }
@@ -331,7 +354,17 @@ export async function deleteSaleOrder(soId: string): Promise<SaleOrderActionResp
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // TODO: Lógica para revertir asientos contables y ajustes de stock si es necesario antes de eliminar.
+    const [orderStatusRows] = await connection.query<RowDataPacket[]>('SELECT status FROM sale_orders WHERE id = ?', [parseInt(soId)]);
+    if (orderStatusRows.length > 0) {
+        const currentStatus = orderStatusRows[0].status;
+        if (!['Borrador', 'Cancelada'].includes(currentStatus)) {
+            await connection.rollback();
+            return { success: false, message: `No se puede eliminar una orden de venta en estado '${currentStatus}'. Considere cancelarla primero.`};
+        }
+    } else {
+        await connection.rollback();
+        return { success: false, message: 'Orden de Venta no encontrada para eliminar.'};
+    }
 
     await connection.query('DELETE FROM sale_order_items WHERE sale_order_id = ?', [parseInt(soId)]);
     const [result] = await connection.query<ResultSetHeader>(
@@ -342,9 +375,6 @@ export async function deleteSaleOrder(soId: string): Promise<SaleOrderActionResp
 
     if (result.affectedRows > 0) {
         revalidatePath('/sales', 'layout');
-        revalidatePath('/inventory', 'layout');
-        revalidatePath('/accounting', 'layout');
-        revalidatePath('/payments', 'layout');
         return {
           success: true,
           message: 'Orden de Venta eliminada exitosamente.',
@@ -364,7 +394,7 @@ export async function deleteSaleOrder(soId: string): Promise<SaleOrderActionResp
   }
 }
 
-export async function getSaleOrders(): Promise<(Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string; description?: string;})[]> {
+export async function getSaleOrders(): Promise<(Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string; description: string;})[]> {
   if (!pool) { return []; }
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
@@ -379,10 +409,10 @@ export async function getSaleOrders(): Promise<(Omit<SaleOrderFormInput, 'items'
         customerId: row.customerId.toString(),
         customerName: row.customerName,
         date: row.date,
-        description: row.description,
+        description: row.description || '',
         totalAmount: parseFloat(row.totalAmount),
         status: row.status
-    })) as (Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string; description?: string;})[];
+    })) as (Omit<SaleOrderFormInput, 'items' | 'customerId'> & {id: string; invoiceNumber: string; totalAmount: number; customerName?: string; customerId: string; description: string;})[];
   } catch (error) {
     console.error('Error al obtener Órdenes de Venta (MySQL):', error);
     return [];
@@ -415,7 +445,7 @@ export async function getSaleOrderById(id: string): Promise<SaleOrderWithDetails
             customerId: orderData.customerId.toString(),
             customerName: orderData.customerName,
             date: orderData.date,
-            description: orderData.description,
+            description: orderData.description || '',
             totalAmount: parseFloat(orderData.totalAmount),
             status: orderData.status,
             items: itemRows.map(item => ({
@@ -459,7 +489,12 @@ export async function updateSaleOrderStatus(id: string, status: SaleOrderFormInp
     );
 
     if (!dbConnection) await conn.commit();
-    return result.affectedRows > 0;
+    if (result.affectedRows > 0) {
+        revalidatePath('/sales', 'layout');
+        if (status === 'Entregada' || status === 'Pagado') revalidatePath('/payments', 'layout');
+        return true;
+    }
+    return false;
   } catch (error) {
     if (!dbConnection && conn) await conn.rollback();
     console.error(`Error al actualizar estado de OV ${id} a ${status}:`, error);
@@ -468,3 +503,5 @@ export async function updateSaleOrderStatus(id: string, status: SaleOrderFormInp
     if (!dbConnection && conn && pool) (conn as Connection).release();
   }
 }
+
+    

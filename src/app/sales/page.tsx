@@ -19,9 +19,9 @@ import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { SaleOrderSchema } from "@/app/schemas/sales.schemas";
 import type { SaleOrderFormInput, SaleOrderItemFormInput } from "@/app/schemas/sales.schemas";
-import { addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders, type SaleOrderWithDetails, type SaleOrderActionResponse } from "@/app/actions/sales.actions";
-import { getInventoryItems, type InventoryItemFormInput } from "@/app/actions/inventory.actions";
-import { getContacts, type ContactFormInput } from "@/app/actions/contacts.actions";
+import { addSaleOrder, updateSaleOrder, deleteSaleOrder, getSaleOrders, getSaleOrderById, type SaleOrderWithDetails, type SaleOrderActionResponse } from "@/app/actions/sales.actions";
+import { getInventoryItems, type InventoryItemFormInput as AppInventoryItem } from "@/app/actions/inventory.actions";
+import { getContacts, type ContactFormInput as AppContact } from "@/app/actions/contacts.actions";
 import { useToast } from "@/hooks/use-toast";
 
 const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
@@ -30,7 +30,7 @@ const getStatusBadge = (status: SaleOrderFormInput["status"]) => {
     case "Confirmada": return <Badge variant="outline" className="border-blue-500/70 bg-blue-500/10 text-blue-700 dark:text-blue-400"><CheckCircle className="mr-1 h-3 w-3" />Confirmada</Badge>;
     case "Enviada": return <Badge variant="outline" className="border-purple-500/70 bg-purple-500/10 text-purple-700 dark:text-purple-400"><Store className="mr-1 h-3 w-3" />Enviada</Badge>;
     case "Entregada": return <Badge variant="outline" className="border-teal-500/70 bg-teal-500/10 text-teal-700 dark:text-teal-400"><PackageCheck className="mr-1 h-3 w-3" />Entregada</Badge>;
-    case "Pagada": return <Badge variant="default" className="bg-green-500/20 text-green-700 dark:bg-green-700/30 dark:text-green-300 border-green-500/30"><CreditCard className="mr-1 h-3 w-3" />Pagada</Badge>;
+    case "Pagada": return <Badge variant="default" className="bg-green-600/20 text-green-700 dark:bg-green-700/30 dark:text-green-300 border-green-600/30"><CreditCard className="mr-1 h-3 w-3" />Pagada</Badge>;
     case "Cancelada": return <Badge variant="destructive" className="bg-red-500/10 text-red-700 dark:bg-red-700/30 dark:text-red-300 border-red-500/30"><XCircle className="mr-1 h-3 w-3" />Cancelada</Badge>;
     default: return <Badge variant="secondary">{status}</Badge>;
   }
@@ -46,11 +46,11 @@ interface AppSaleOrder extends Omit<SaleOrderFormInput, 'items' | 'customerId'> 
   items: (SaleOrderItemFormInput & {unitPrice: number})[];
 }
 
-function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit, closeDialog }: { saleOrder?: AppSaleOrder, inventoryItems: (InventoryItemFormInput & {id:string})[], clientContacts: (ContactFormInput & { id: string})[], onFormSubmit: (data: SaleOrderFormInput) => Promise<SaleOrderActionResponse>, closeDialog: () => void }) {
+function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit, closeDialog }: { saleOrder?: AppSaleOrder, inventoryItems: (AppInventoryItem & {id:string})[], clientContacts: (AppContact & { id: string})[], onFormSubmit: (data: SaleOrderFormInput) => Promise<SaleOrderActionResponse>, closeDialog: () => void }) {
   const { register, handleSubmit, control, watch, setValue, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<SaleOrderFormInput>({
     resolver: zodResolver(SaleOrderSchema),
     defaultValues: saleOrder ?
-      {...saleOrder, customerId: saleOrder.customerId.toString() } :
+      {...saleOrder, customerId: saleOrder.customerId.toString(), description: saleOrder.description || '' } :
       {
         customerId: '',
         date: new Date().toISOString().split('T')[0],
@@ -66,6 +66,11 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
   });
 
   const watchedItems = watch("items");
+  const currentStatus = watch("status");
+  const orderIsPaid = saleOrder?.status === 'Pagado';
+  const orderIsDeliveredOrBeyond = saleOrder && ['Entregada', 'Pagada'].includes(saleOrder.status);
+  const isFormEditable = !saleOrder || saleOrder.status === 'Borrador';
+
 
   const handleInventoryItemChange = (itemIndex: number, itemId: string) => {
     const selectedItem = inventoryItems.find(invItem => invItem.id === itemId);
@@ -81,7 +86,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
   }, 0);
 
   const processFormSubmit = async (data: SaleOrderFormInput) => {
-    clearErrors("itemErrors" as any); // Clear previous item-specific errors
+    clearErrors("itemErrors" as any);
     const response = await onFormSubmit(data);
     if (!response.success && response.itemErrors) {
         response.itemErrors.forEach(err => {
@@ -100,7 +105,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
             name="customerId"
             control={control}
             render={({ field }) => (
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!isFormEditable || orderIsPaid}>
                 <SelectTrigger id="customerId"><SelectValue placeholder="Seleccionar cliente..." /></SelectTrigger>
                 <SelectContent>
                   {clientContacts.map(contact => (
@@ -114,13 +119,13 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
         </div>
         <div>
           <Label htmlFor="date">Fecha de Venta</Label>
-          <Input id="date" type="date" {...register("date")} />
+          <Input id="date" type="date" {...register("date")} disabled={!isFormEditable || orderIsPaid} />
           {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
         </div>
       </div>
        <div>
         <Label htmlFor="description">Descripción</Label>
-        <Textarea id="description" {...register("description")} placeholder="Ej. Venta de servicios de consultoría" />
+        <Textarea id="description" {...register("description")} placeholder="Ej. Venta de servicios de consultoría" disabled={!isFormEditable || orderIsPaid}/>
         {errors.description && <p className="text-sm text-destructive mt-1">{errors.description.message}</p>}
       </div>
       <div>
@@ -129,16 +134,20 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
           name="status"
           control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!!saleOrder && (saleOrder.status === 'Pagado' || saleOrder.status === 'Entregada')}>
+            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={orderIsPaid}>
               <SelectTrigger id="status"><SelectValue placeholder="Seleccionar estado..." /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Borrador">Borrador</SelectItem>
-                <SelectItem value="Confirmada">Confirmada</SelectItem>
-                <SelectItem value="Enviada">Enviada</SelectItem>
-                {/* Permitir cambiar a Entregada si no está Pagado */}
-                {(saleOrder?.status !== 'Pagado') && <SelectItem value="Entregada">Entregada</SelectItem>}
-                <SelectItem value="Cancelada">Cancelada</SelectItem>
-                {saleOrder?.status === 'Pagado' && <SelectItem value="Pagado" disabled>Pagado</SelectItem>}
+                 {(currentStatus === 'Borrador' || !saleOrder) && <SelectItem value="Borrador">Borrador</SelectItem>}
+                
+                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada') && <SelectItem value="Confirmada">Confirmada</SelectItem>}
+
+                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada' && currentStatus !== 'Borrador') && <SelectItem value="Enviada">Enviada</SelectItem>}
+
+                {(!orderIsDeliveredOrBeyond && currentStatus !== 'Cancelada' && currentStatus !== 'Borrador' && currentStatus !== 'Confirmada') && <SelectItem value="Entregada">Entregada</SelectItem>}
+                
+                {!orderIsPaid && <SelectItem value="Cancelada">Cancelada</SelectItem>}
+                
+                {orderIsPaid && <SelectItem value="Pagado" disabled>Pagado</SelectItem>}
               </SelectContent>
             </Select>
           )}
@@ -162,7 +171,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
                       handleInventoryItemChange(index, value);
                     }}
                     defaultValue={selectField.value}
-                    disabled={!!saleOrder && saleOrder.status !== 'Borrador'}
+                    disabled={!isFormEditable || orderIsPaid}
                   >
                     <SelectTrigger><SelectValue placeholder="Seleccionar artículo..." /></SelectTrigger>
                     <SelectContent>
@@ -178,16 +187,16 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
             </div>
             <div className="col-span-2">
               <Label htmlFor={`items.${index}.quantity`} className="text-xs">Cantidad</Label>
-              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!!saleOrder && saleOrder.status !== 'Borrador'} />
+              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!isFormEditable || orderIsPaid} />
               {errors.items?.[index]?.quantity && errors.items[index]?.quantity?.type !== 'manual' && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
             </div>
             <div className="col-span-3">
               <Label htmlFor={`items.${index}.unitPrice`} className="text-xs">Precio Unit. (€)</Label>
-              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!!saleOrder && saleOrder.status !== 'Borrador'}/>
+              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!isFormEditable || orderIsPaid}/>
               {errors.items?.[index]?.unitPrice && <p className="text-sm text-destructive mt-1">{errors.items[index]?.unitPrice?.message}</p>}
             </div>
             <div className="col-span-2 flex items-end">
-              {(!saleOrder || saleOrder.status === 'Borrador') && fields.length > 1 && (
+              {(isFormEditable && !orderIsPaid) && fields.length > 1 && (
                <Button type="button" variant="ghost" size="sm" onClick={() => remove(index)} className="text-destructive hover:text-destructive">
                 <Trash className="h-4 w-4" />
               </Button>
@@ -195,13 +204,13 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
             </div>
           </div>
         ))}
-        {(!saleOrder || saleOrder.status === 'Borrador') && (
+        {(isFormEditable && !orderIsPaid) && (
             <Button type="button" variant="outline" size="sm" onClick={() => append({ inventoryItemId: '', quantity: 1, unitPrice: 0 })}>
             <PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo
             </Button>
         )}
          {errors.items && typeof errors.items === 'string' && <p className="text-sm text-destructive mt-1">{errors.items}</p>}
-         {errors.itemErrors && errors.itemErrors.length > 0 && !errors.items && /* Check if general items error already shown */
+         {errors.itemErrors && errors.itemErrors.length > 0 && !errors.items && 
             <p className="text-sm text-destructive mt-1">Corrija los errores en los artículos.</p>}
       </div>
 
@@ -211,7 +220,7 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting || (saleOrder?.status === 'Pagado')}>
+        <Button type="submit" disabled={isSubmitting || orderIsPaid}>
           {isSubmitting ? (saleOrder ? "Guardando..." : "Creando...") : (saleOrder ? "Guardar Cambios" : "Crear Venta")}
         </Button>
       </DialogFooter>
@@ -222,8 +231,8 @@ function SaleOrderForm({ saleOrder, inventoryItems, clientContacts, onFormSubmit
 
 export default function SalesPage() {
   const [salesOrders, setSalesOrders] = useState<AppSaleOrder[]>([]);
-  const [inventoryItems, setInventoryItems] = useState<(InventoryItemFormInput & { id: string})[]>([]);
-  const [clientContacts, setClientContacts] = useState<(ContactFormInput & { id: string})[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<(AppInventoryItem & { id: string})[]>([]);
+  const [clientContacts, setClientContacts] = useState<(AppContact & { id: string})[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingSaleOrder, setEditingSaleOrder] = useState<AppSaleOrder | undefined>(undefined);
@@ -275,6 +284,12 @@ export default function SalesPage() {
 
   const handleDeleteConfirm = async () => {
     if (!deletingSaleOrderId) return;
+    const orderToDelete = salesOrders.find(so => so.id === deletingSaleOrderId);
+    if (orderToDelete && !['Borrador', 'Cancelada'].includes(orderToDelete.status)) {
+        toast({ variant: "destructive", title: "Error", description: `No se puede eliminar una orden en estado '${orderToDelete.status}'.` });
+        setDeletingSaleOrderId(null);
+        return;
+    }
     const response = await deleteSaleOrder(deletingSaleOrderId);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
@@ -391,7 +406,7 @@ export default function SalesPage() {
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                     <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingSaleOrderId(sale.id!)}} className="text-destructive dark:text-destructive-foreground focus:text-destructive" disabled={sale.status === 'Pagado' || sale.status === 'Entregada' || sale.status === 'Confirmada'}>
+                                     <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingSaleOrderId(sale.id!)}} className="text-destructive dark:text-destructive-foreground focus:text-destructive" disabled={!['Borrador', 'Cancelada'].includes(sale.status)}>
                                       <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                     </DropdownMenuItem>
                                   </AlertDialogTrigger>
@@ -437,3 +452,5 @@ export default function SalesPage() {
     </div>
   );
 }
+
+    
