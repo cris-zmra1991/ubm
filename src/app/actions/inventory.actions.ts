@@ -4,23 +4,10 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { InventoryItemSchema, AdjustStockSchema } from '@/app/schemas/inventory.schemas';
 
-// TODO: SQL - CREATE TABLE para artículos de inventario
-// CREATE TABLE inventory_items (
-//   id INT AUTO_INCREMENT PRIMARY KEY,
-//   name VARCHAR(255) NOT NULL,
-//   sku VARCHAR(100) NOT NULL UNIQUE,
-//   category VARCHAR(255) NOT NULL,
-//   currentStock INT NOT NULL DEFAULT 0,
-//   reorderLevel INT NOT NULL DEFAULT 0,
-//   unitPrice DECIMAL(10, 2) NOT NULL,
-//   imageUrl VARCHAR(2048),
-//   supplier VARCHAR(255),
-//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-//   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-// );
+// TODO: SQL - CREATE TABLE inventory_items (... default_debit_account_id INT NULL, default_credit_account_id INT NULL, fee_percentage DECIMAL(5,2) NULL, sale_price DECIMAL(10,2) NULL, FOREIGN KEY (default_debit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL, FOREIGN KEY (default_credit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL);
 
 export type InventoryItemFormInput = z.infer<typeof InventoryItemSchema>;
 export type AdjustStockFormInput = z.infer<typeof AdjustStockSchema>;
@@ -29,19 +16,7 @@ export type AdjustStockFormInput = z.infer<typeof AdjustStockSchema>;
 export interface InventoryActionResponse {
   success: boolean;
   message: string;
-  errors?: {
-    name?: string[];
-    sku?: string[];
-    category?: string[];
-    currentStock?: string[];
-    reorderLevel?: string[];
-    unitPrice?: string[];
-    imageUrl?: string[];
-    supplier?: string[];
-    quantityChange?: string[]; 
-    reason?: string[]; 
-    general?: string[];
-  };
+  errors?: any;
   inventoryItem?: InventoryItemFormInput & { id: string };
 }
 
@@ -52,46 +27,41 @@ export async function addInventoryItem(
 
   if (!validatedFields.success) {
     return {
-      success: false,
-      message: 'Error de validación.',
+      success: false, message: 'Error de validación.',
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in addInventoryItem.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
   
-  const { name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier } = validatedFields.data;
+  const { name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
 
   try {
-    // TODO: SQL - Insertar artículo de inventario
     const [result] = await pool.query<ResultSetHeader>(
-      'INSERT INTO inventory_items (name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null]
+      'INSERT INTO inventory_items (name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, salePrice]
     );
 
     if (result.affectedRows > 0) {
       const newItemId = result.insertId.toString();
       revalidatePath('/inventory');
       return {
-        success: true,
-        message: 'Artículo de inventario añadido exitosamente.',
+        success: true, message: 'Artículo de inventario añadido.',
         inventoryItem: { ...validatedFields.data, id: newItemId },
       };
     } else {
-      return { success: false, message: 'No se pudo añadir el artículo al inventario.' };
+      return { success: false, message: 'No se pudo añadir el artículo.' };
     }
   } catch (error: any) {
-    console.error('Error al añadir artículo de inventario (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) { // Manejar error de SKU duplicado
+    console.error('Error al añadir artículo (MySQL):', error);
+    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El SKU ya existe.', errors: { sku: ['Este SKU ya está registrado.'] } };
     }
     return {
-      success: false,
-      message: 'Error del servidor al añadir artículo.',
-      errors: { general: ['No se pudo añadir el artículo al inventario.'] },
+      success: false, message: 'Error del servidor al añadir artículo.',
+      errors: { general: ['No se pudo añadir el artículo.'] },
     };
   }
 }
@@ -100,37 +70,33 @@ export async function updateInventoryItem(
   data: InventoryItemFormInput
 ): Promise<InventoryActionResponse> {
   if (!data.id) {
-    return { success: false, message: 'ID de artículo requerido para actualizar.' };
+    return { success: false, message: 'ID de artículo requerido.' };
   }
   const validatedFields = InventoryItemSchema.safeParse(data);
 
   if (!validatedFields.success) {
     return {
-      success: false,
-      message: 'Error de validación.',
+      success: false, message: 'Error de validación.',
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in updateInventoryItem.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
   
-  const { id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier } = validatedFields.data;
+  const { id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
 
   try {
-    // TODO: SQL - Actualizar artículo de inventario
     const [result] = await pool.query<ResultSetHeader>(
-      'UPDATE inventory_items SET name = ?, sku = ?, category = ?, currentStock = ?, reorderLevel = ?, unitPrice = ?, imageUrl = ?, supplier = ? WHERE id = ?',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, id]
+      'UPDATE inventory_items SET name = ?, sku = ?, category = ?, currentStock = ?, reorderLevel = ?, unitPrice = ?, imageUrl = ?, supplier = ?, default_debit_account_id = ?, default_credit_account_id = ?, fee_percentage = ?, sale_price = ? WHERE id = ?',
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, salePrice, parseInt(id)]
     );
     
     if (result.affectedRows > 0) {
       revalidatePath('/inventory');
       return {
-        success: true,
-        message: 'Artículo de inventario actualizado exitosamente.',
+        success: true, message: 'Artículo de inventario actualizado.',
         inventoryItem: { ...validatedFields.data, id: id! },
       };
     } else {
@@ -139,12 +105,11 @@ export async function updateInventoryItem(
   } catch (error: any) {
     console.error('Error al actualizar artículo (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El SKU ya existe para otro artículo.', errors: { sku: ['Este SKU ya está registrado para otro artículo.'] } };
+        return { success: false, message: 'Error: El SKU ya existe para otro artículo.', errors: { sku: ['Este SKU ya está registrado.'] } };
     }
     return {
-      success: false,
-      message: 'Error del servidor al actualizar artículo.',
-      errors: { general: ['No se pudo actualizar el artículo.'] },
+      success: false, message: 'Error del servidor al actualizar.',
+      errors: { general: ['No se pudo actualizar.'] },
     };
   }
 }
@@ -153,36 +118,35 @@ export async function deleteInventoryItem(
   itemId: string
 ): Promise<InventoryActionResponse> {
   if (!itemId) {
-    return { success: false, message: 'ID de artículo requerido para eliminar.' };
+    return { success: false, message: 'ID de artículo requerido.' };
   }
-
   if (!pool) {
-    console.error('Error: Connection pool not available in deleteInventoryItem.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   try {
-    // TODO: SQL - Eliminar artículo de inventario
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM inventory_items WHERE id = ?',
-      [itemId]
+      [parseInt(itemId)]
     );
     
     if (result.affectedRows > 0) {
         revalidatePath('/inventory');
         return {
-          success: true,
-          message: 'Artículo de inventario eliminado exitosamente.',
+          success: true, message: 'Artículo de inventario eliminado.',
         };
     } else {
-        return { success: false, message: 'Artículo no encontrado para eliminar.' };
+        return { success: false, message: 'Artículo no encontrado.' };
     }
-  } catch (error) {
+  } catch (error: any)
+   {
     console.error('Error al eliminar artículo (MySQL):', error);
+     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) {
+      return { success: false, message: 'No se puede eliminar el artículo porque está referenciado en órdenes de compra o venta.'};
+    }
     return {
-      success: false,
-      message: 'Error del servidor al eliminar artículo.',
-      errors: { general: ['No se pudo eliminar el artículo.'] },
+      success: false, message: 'Error del servidor al eliminar.',
+      errors: { general: ['No se pudo eliminar.'] },
     };
   }
 }
@@ -193,15 +157,13 @@ export async function adjustStock(
   const validatedFields = AdjustStockSchema.safeParse(data);
   if (!validatedFields.success) {
     return {
-      success: false,
-      message: 'Error de validación del ajuste de stock.',
+      success: false, message: 'Error de validación.',
       errors: validatedFields.error.flatten().fieldErrors,
     };
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in adjustStock.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   const { itemId, quantityChange, reason } = validatedFields.data;
@@ -211,15 +173,14 @@ export async function adjustStock(
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // TODO: SQL - Obtener stock actual y luego actualizarlo
     const [itemRows] = await connection.query<RowDataPacket[]>(
-      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier FROM inventory_items WHERE id = ? FOR UPDATE',
-      [itemId]
+      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items WHERE id = ? FOR UPDATE',
+      [parseInt(itemId)]
     );
 
     if (itemRows.length === 0) {
       await connection.rollback();
-      return { success: false, message: 'Artículo no encontrado para ajustar stock.' };
+      return { success: false, message: 'Artículo no encontrado.' };
     }
     
     const currentItem = itemRows[0] as InventoryItemFormInput;
@@ -228,36 +189,31 @@ export async function adjustStock(
     if (newStock < 0) {
       await connection.rollback();
       return { 
-        success: false, 
-        message: 'El ajuste resultaría en stock negativo.',
+        success: false, message: 'El ajuste resultaría en stock negativo.',
         errors: { quantityChange: ['El stock no puede ser menor que cero.'] }
       };
     }
 
     await connection.query<ResultSetHeader>(
       'UPDATE inventory_items SET currentStock = ? WHERE id = ?',
-      [newStock, itemId]
+      [newStock, parseInt(itemId)]
     );
-
-    // TODO: SQL - Opcionalmente, registrar el ajuste en una tabla de historial de stock
-    // Ejemplo: INSERT INTO stock_adjustments (itemId, quantityChange, reason, newStock, userId) VALUES (?, ?, ?, ?, ?);
-    // Para este ejemplo, omitimos el historial pero es importante en un sistema real.
-    console.log(`Stock ajustado para ${itemId}. Motivo: ${reason}. Nuevo stock: ${newStock}. Cambio: ${quantityChange}`);
-
+    
+    // TODO: Registrar el ajuste en una tabla de historial de stock (stock_adjustments_log)
+    // INSERT INTO stock_adjustments_log (inventory_item_id, quantity_change, reason, new_stock, user_id) VALUES (?, ?, ?, ?, ?);
+    
     await connection.commit();
     
     revalidatePath('/inventory');
     return {
-      success: true,
-      message: 'Stock ajustado exitosamente.',
+      success: true, message: 'Stock ajustado exitosamente.',
       inventoryItem: { ...currentItem, id: currentItem.id!.toString(), currentStock: newStock },
     };
   } catch (error) {
     if (connection) await connection.rollback();
     console.error('Error al ajustar stock (MySQL):', error);
     return {
-      success: false,
-      message: 'Error del servidor al ajustar stock.',
+      success: false, message: 'Error del servidor al ajustar stock.',
       errors: { general: ['No se pudo ajustar el stock.'] },
     };
   } finally {
@@ -266,23 +222,29 @@ export async function adjustStock(
 }
 
 
-export async function getInventoryItems(): Promise<InventoryItemFormInput[]> {
+export async function getInventoryItems(): Promise<(InventoryItemFormInput & {id: string})[]> {
   if (!pool) {
-    console.error('Error: Connection pool not available in getInventoryItems.');
     return [];
   }
   try {
-    // TODO: SQL - Obtener artículos de inventario
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier FROM inventory_items ORDER BY name ASC'
+      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items ORDER BY name ASC'
     );
     return rows.map(row => ({
-        ...row,
         id: row.id.toString(),
+        name: row.name,
+        sku: row.sku,
+        category: row.category,
         currentStock: Number(row.currentStock),
         reorderLevel: Number(row.reorderLevel),
-        unitPrice: parseFloat(row.unitPrice)
-    })) as InventoryItemFormInput[];
+        unitPrice: parseFloat(row.unitPrice),
+        imageUrl: row.imageUrl,
+        supplier: row.supplier,
+        defaultDebitAccountId: row.default_debit_account_id?.toString() || null,
+        defaultCreditAccountId: row.default_credit_account_id?.toString() || null,
+        feePercentage: row.fee_percentage !== null ? parseFloat(row.fee_percentage) : null,
+        salePrice: row.sale_price !== null ? parseFloat(row.sale_price) : null,
+    })) as (InventoryItemFormInput & {id: string})[];
   } catch (error) {
     console.error('Error al obtener Artículos de Inventario (MySQL):', error);
     return [];

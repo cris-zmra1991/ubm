@@ -42,9 +42,9 @@ interface AppShellProps {
 
 // Definición de patrones de acceso por rol
 const ROLE_ACCESS_PATTERNS: Record<string, RegExp[]> = {
-  'Default': [/^\/$/], // Rol por defecto si no hay uno específico o para errores
-  'Administrador': [/^\/.*$/], // Acceso total
-  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/],
+  'Default': [/^\/$/], 
+  'Administrador': [/^\/.*$/], 
+  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/payments(\/.*)?$/], // Añadido /payments
   'Gerente': [/^\/$/, /^\/sales(\/.*)?$/, /^\/purchases(\/.*)?$/, /^\/inventory(\/.*)?$/, /^\/contacts(\/.*)?$/],
   'Almacenero': [/^\/$/, /^\/inventory(\/.*)?$/],
   'Comercial': [/^\/$/, /^\/contacts(\/.*)?$/, /^\/sales(\/.*)?$/],
@@ -61,7 +61,7 @@ export function AppShell({ children, session }: AppShellProps) {
         {!isLoginPage && session && <AppHeader session={session} />}
         <main className={`flex-1 overflow-y-auto bg-background ${isLoginPage ? 'h-screen' : ''}`}>
           {isLoginPage ? (
-            children // Renderiza solo el contenido de la página de login
+            children 
           ) : (
             <SidebarInset>
               <div className="p-4 sm:p-6 lg:p-8">
@@ -80,12 +80,12 @@ function Sidebar_Internal({ navLinks: allNavLinks, pathname, session }: { navLin
   const userRole = session?.roleName || 'Default';
 
   const filteredNavLinks = useMemo(() => {
-    if (!session) return []; // No mostrar enlaces si no hay sesión (aunque middleware debería prevenir esto)
+    if (!session) return []; 
     
     const allowedPatterns = ROLE_ACCESS_PATTERNS[userRole] || ROLE_ACCESS_PATTERNS['Default'];
     
     return allNavLinks.filter(link => {
-      if (link.href === '/') return true; // El Dashboard siempre es visible para usuarios logueados
+      if (link.href === '/') return true; 
       return allowedPatterns.some(pattern => pattern.test(link.href));
     });
   }, [allNavLinks, userRole, session]);
@@ -129,12 +129,14 @@ function Sidebar_Internal({ navLinks: allNavLinks, pathname, session }: { navLin
 function AppHeader({ session }: { session: SessionPayload | null }) {
   const { isMobile } = useSidebar();
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-card px-4 md:px-6 shadow-sm">
+    <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b bg-card px-4 md:px-6 shadow-sm">
       {isMobile && <SidebarTrigger />}
       <div className="flex-1">
         {/* Placeholder for breadcrumbs or page title if needed */}
       </div>
-      {session && <UserMenu session={session} />}
+      <div className="ml-auto"> {/* Alinea el UserMenu a la derecha */}
+        {session && <UserMenu session={session} />}
+      </div>
     </header>
   );
 }
@@ -148,7 +150,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
     setMounted(true);
   }, []);
 
-  if (!session) { // No renderizar nada si no hay sesión
+  if (!session) { 
     return null;
   }
 
@@ -157,23 +159,23 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
   const showInSidebar = !isMobile && (open || state === "expanded");
 
 
-  if (showInSidebar) {
+  if (showInSidebar) { // UserMenu en la Sidebar (cuando está expandida)
      return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-            <Avatar className="h-8 w-8 mr-2">
-              <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName} data-ai-hint="user avatar" />
+          <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-10 px-2">
+            <Avatar className="h-7 w-7 mr-2">
+              <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName || "Usuario"} data-ai-hint="user avatar"/>
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
-            <div className="flex items-center w-full">
+            <div className="flex items-center w-full text-sm">
               <span className="truncate">{userName}</span>
               {mounted && <ChevronDown className="ml-auto h-4 w-4 shrink-0" />}
             </div>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>Mi Cuenta ({session.roleName})</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-xs">Mi Cuenta ({session.roleName})</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
@@ -195,20 +197,20 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
     );
   }
 
-  if (isMobile || (!open && state === "collapsed")) {
-    return (
+  // UserMenu en la AppHeader (o sidebar colapsada)
+  return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="rounded-full">
+          <Button variant="ghost" size="icon" className="rounded-full h-8 w-8">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName} data-ai-hint="user avatar" />
+              <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName || "Usuario"} data-ai-hint="user avatar"/>
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
-            <span className="sr-only">Toggle user menu</span>
+            <span className="sr-only">Menú de Usuario</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-popover text-popover-foreground border-border" align="end">
-          <DropdownMenuLabel>{userName} ({session.roleName})</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-xs">{userName} ({session.roleName})</DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem>
             <UserCircle className="mr-2 h-4 w-4" />
@@ -221,7 +223,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
           <DropdownMenuSeparator />
            <form action={handleLogout} className="w-full">
              <DropdownMenuItem asChild>
-                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-default">
+                <Button type="submit" variant="ghost" className="w-full justify-start text-sm h-auto font-normal text-destructive hover:text-destructive focus-visible:ring-destructive cursor-default px-2 py-1.5">
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Cerrar Sesión</span>
                 </Button>
@@ -229,8 +231,5 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
            </form>
         </DropdownMenuContent>
       </DropdownMenu>
-    );
-  }
-
-  return null;
+  );
 }

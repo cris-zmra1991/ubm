@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { pool } from '@/lib/db';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import type { ResultSetHeader, RowDataPacket, Connection } from 'mysql2/promise';
 import { ExpenseSchema } from '@/app/schemas/expenses.schemas';
 
 // SQL - CREATE TABLE para gastos
@@ -16,7 +16,7 @@ import { ExpenseSchema } from '@/app/schemas/expenses.schemas';
 //   amount DECIMAL(10, 2) NOT NULL,
 //   vendor VARCHAR(255),
 //   status ENUM('Enviado', 'Aprobado', 'Rechazado', 'Pagado') NOT NULL,
-//   receiptUrl VARCHAR(2048), -- URL al recibo
+//   receiptUrl VARCHAR(2048), 
 //   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 //   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 // );
@@ -26,16 +26,7 @@ export type ExpenseFormInput = z.infer<typeof ExpenseSchema>;
 export interface ExpenseActionResponse {
   success: boolean;
   message: string;
-  errors?: {
-    date?: string[];
-    category?: string[];
-    description?: string[];
-    amount?: string[];
-    vendor?: string[];
-    status?: string[];
-    receiptUrl?: string[];
-    general?: string[];
-  };
+  errors?: any;
   expense?: ExpenseFormInput & { id: string };
 }
 
@@ -53,14 +44,12 @@ export async function addExpense(
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in addExpense.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   const { date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
 
   try {
-    // SQL - Insertar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO expenses (date, category, description, amount, vendor, status, receiptUrl) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [date, category, description, amount, vendor || null, status, receiptUrl || null]
@@ -69,6 +58,7 @@ export async function addExpense(
     if (result.affectedRows > 0) {
       const newExpenseId = result.insertId.toString();
       revalidatePath('/expenses');
+      revalidatePath('/payments'); // Si los gastos aprobados aparecen en pagos pendientes
       return {
         success: true,
         message: 'Gasto añadido exitosamente.',
@@ -104,21 +94,20 @@ export async function updateExpense(
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in updateExpense.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
   
   const { id, date, category, description, amount, vendor, status, receiptUrl } = validatedFields.data;
 
   try {
-    // SQL - Actualizar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE expenses SET date = ?, category = ?, description = ?, amount = ?, vendor = ?, status = ?, receiptUrl = ? WHERE id = ?',
-      [date, category, description, amount, vendor || null, status, receiptUrl || null, id]
+      [date, category, description, amount, vendor || null, status, receiptUrl || null, parseInt(id)]
     );
     
     if (result.affectedRows > 0) {
       revalidatePath('/expenses');
+      revalidatePath('/payments'); // Si el estado cambia a/desde Aprobado/Pagado
       return {
         success: true,
         message: 'Gasto actualizado exitosamente.',
@@ -145,19 +134,18 @@ export async function deleteExpense(
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in deleteExpense.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   try {
-    // SQL - Eliminar gasto
     const [result] = await pool.query<ResultSetHeader>(
       'DELETE FROM expenses WHERE id = ?',
-      [expenseId]
+      [parseInt(expenseId)]
     );
     
     if (result.affectedRows > 0) {
         revalidatePath('/expenses');
+        revalidatePath('/payments');
         return {
           success: true,
           message: 'Gasto eliminado exitosamente.',
@@ -175,21 +163,24 @@ export async function deleteExpense(
   }
 }
 
-export async function getExpenses(): Promise<ExpenseFormInput[]> {
+export async function getExpenses(): Promise<(ExpenseFormInput & {id: string})[]> {
   if (!pool) {
-    console.error('Error: Connection pool not available in getExpenses.');
     return [];
   }
   try {
-    // SQL - Obtener gastos
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, category, description, amount, vendor, status, receiptUrl FROM expenses ORDER BY date DESC'
     );
     return rows.map(row => ({
-        ...row,
         id: row.id.toString(),
-        amount: parseFloat(row.amount)
-    })) as ExpenseFormInput[];
+        date: row.date,
+        category: row.category,
+        description: row.description,
+        amount: parseFloat(row.amount),
+        vendor: row.vendor,
+        status: row.status,
+        receiptUrl: row.receiptUrl
+    })) as (ExpenseFormInput & {id: string})[];
   } catch (error) {
     console.error('Error al obtener Gastos (MySQL):', error);
     return [];
@@ -198,11 +189,9 @@ export async function getExpenses(): Promise<ExpenseFormInput[]> {
 
 export async function getExpensesLastMonthValue(): Promise<number> {
   if (!pool) {
-    console.error('Error: Connection pool not available in getExpensesLastMonthValue.');
     return 0;
   }
   try {
-    // SQL - Obtener suma de gastos pagados del último mes (ej. últimos 30 días)
     const [rows] = await pool.query<RowDataPacket[]>(
       "SELECT SUM(amount) as total FROM expenses WHERE status = 'Pagado' AND date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)"
     );
@@ -213,5 +202,23 @@ export async function getExpensesLastMonthValue(): Promise<number> {
   } catch (error) {
     console.error('Error al obtener valor de gastos del último mes (MySQL):', error);
     return 0;
+  }
+}
+
+// Helper function to update status, callable internally or by payments module
+export async function updateExpenseStatus(id: string, status: ExpenseFormInput["status"], dbConnection?: Connection): Promise<boolean> {
+  const conn = dbConnection || pool;
+  if (!conn) return false;
+  try {
+    const [result] = await conn.query<ResultSetHeader>(
+      'UPDATE expenses SET status = ? WHERE id = ?',
+      [status, parseInt(id)]
+    );
+    // TODO: Si el estado es 'Pagado', generar asiento contable.
+    // Por ejemplo, Debitar cuenta de Gasto, Creditar Caja/Banco.
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error(`Error al actualizar estado de gasto ${id} a ${status}:`, error);
+    return false;
   }
 }

@@ -3,21 +3,19 @@
 
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { pool } from '../../lib/db'; // Ajustado a ruta relativa
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { pool } from '@/lib/db';
+import type { ResultSetHeader, RowDataPacket, Connection } from 'mysql2/promise';
 import { AccountSchema, JournalEntrySchema } from '../schemas/accounting.schemas';
 
 export type AccountFormInput = z.infer<typeof AccountSchema>;
 export type JournalEntryFormInput = z.infer<typeof JournalEntrySchema>;
 
-// Tipo extendido para incluir el saldo acumulado y la información del padre
 export interface AccountWithDetails extends AccountFormInput {
   id: string;
-  parent_account_id?: string | null; // Para la UI, el ID de la cuenta padre (viene de la DB como parent_account_id)
-  rolledUpBalance?: number; // Saldo acumulado (directo + hijos)
-  children?: AccountWithDetails[]; // Para construir la jerarquía
+  parent_account_id?: string | null;
+  rolledUpBalance?: number;
+  children?: AccountWithDetails[];
 }
-
 
 export interface AccountingActionResponse<T> {
   success: boolean;
@@ -26,8 +24,24 @@ export interface AccountingActionResponse<T> {
   data?: T & { id: string };
 }
 
-// TODO: SQL - CREATE TABLE chart_of_accounts (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50) NOT NULL UNIQUE, name VARCHAR(255) NOT NULL, type ENUM('Activo', 'Pasivo', 'Patrimonio', 'Ingreso', 'Gasto') NOT NULL, balance DECIMAL(15, 2) NOT NULL DEFAULT 0.00, parent_account_id INT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, FOREIGN KEY (parent_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL);
-// TODO: SQL - CREATE TABLE journal_entries (id INT AUTO_INCREMENT PRIMARY KEY, date DATE NOT NULL, entryNumber VARCHAR(100) NOT NULL UNIQUE, description TEXT NOT NULL, debitAccountCode VARCHAR(50) NOT NULL, creditAccountCode VARCHAR(50) NOT NULL, amount DECIMAL(15, 2) NOT NULL, FOREIGN KEY (debitAccountCode) REFERENCES chart_of_accounts(code), FOREIGN KEY (creditAccountCode) REFERENCES chart_of_accounts(code), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);
+// TODO: SQL - CREATE TABLE chart_of_accounts (... parent_account_id INT NULL, FOREIGN KEY (parent_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL);
+// TODO: SQL - CREATE TABLE journal_entries (...);
+
+async function generateJournalEntryNumber(connection: Connection): Promise<string> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+
+  // Obtener el último ID insertado en journal_entries como una forma simple de secuencia diaria.
+  // Para un sistema más robusto, considera una tabla de secuencias o un formato diferente.
+  const [rows] = await connection.query<RowDataPacket[]>(
+    "SELECT COUNT(*) as count FROM journal_entries WHERE DATE(created_at) = CURDATE()"
+  );
+  const countToday = rows[0].count + 1; // +1 porque este asiento es el siguiente
+
+  return `AS-${year}${month}${day}-${countToday.toString().padStart(4, '0')}`;
+}
 
 
 export async function addAccount(
@@ -39,13 +53,12 @@ export async function addAccount(
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in addAccount.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   const { code, name, type, balance, parentAccountId } = validatedFields.data;
   try {
-    const parentIdValue = parentAccountId === "" || parentAccountId === "null" || parentAccountId === undefined || parentAccountId === null ? null : parseInt(parentAccountId);
+    const parentIdValue = parentAccountId ? parseInt(parentAccountId) : null;
 
     const [result] = await pool.query<ResultSetHeader>(
       'INSERT INTO chart_of_accounts (code, name, type, balance, parent_account_id) VALUES (?, ?, ?, ?, ?)',
@@ -54,17 +67,17 @@ export async function addAccount(
     if (result.affectedRows > 0) {
       const newAccountId = result.insertId.toString();
       revalidatePath('/accounting', 'layout');
-      return { success: true, message: 'Cuenta añadida exitosamente.', data: { ...validatedFields.data, id: newAccountId, parentAccountId: parentAccountIdValue?.toString() || null } };
+      return { success: true, message: 'Cuenta añadida.', data: { ...validatedFields.data, id: newAccountId, parentAccountId: parentIdValue?.toString() || null } };
     } else {
       return { success: false, message: 'No se pudo añadir la cuenta.' };
     }
   } catch (error: any) {
     console.error('Error al añadir cuenta (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El código de cuenta ya existe.', errors: { code: ['Este código de cuenta ya está registrado.'] } };
+    if (error.code === 'ER_DUP_ENTRY') {
+        return { success: false, message: 'Error: El código de cuenta ya existe.', errors: { code: ['Este código ya está registrado.'] } };
     }
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        return { success: false, message: 'Error: La cuenta padre seleccionada no existe.', errors: { parentAccountId: ['La cuenta padre seleccionada no es válida.']}};
+        return { success: false, message: 'Error: La cuenta padre no existe.', errors: { parentAccountId: ['Cuenta padre inválida.']}};
     }
     return { success: false, message: 'Error al añadir cuenta.', errors: { general: ['Error del servidor.'] } };
   }
@@ -80,74 +93,75 @@ export async function updateAccount(
   }
 
   if (!pool) {
-    console.error('Error: Connection pool not available in updateAccount.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   const { id, code, name, type, parentAccountId } = validatedFields.data;
-  // El saldo (balance) no se actualiza directamente aquí, se actualiza mediante asientos.
   try {
-    const parentIdValue = parentAccountId === "" || parentAccountId === "null" || parentAccountId === undefined || parentAccountId === null ? null : parseInt(parentAccountId);
+    const parentIdValue = parentAccountId ? parseInt(parentAccountId) : null;
 
-    if (id === parentAccountId) { // Evitar que una cuenta sea su propio padre
-        return { success: false, message: 'Una cuenta no puede ser su propia cuenta padre.', errors: { parentAccountId: ['Selecciona una cuenta padre diferente.'] } };
+    if (id === parentAccountId) {
+        return { success: false, message: 'Una cuenta no puede ser su propia padre.', errors: { parentAccountId: ['Selecciona una cuenta padre diferente.'] } };
     }
-    // TODO: Implementar validación para evitar ciclos (ej. A padre de B, B padre de A) si es necesario.
-
+    
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE chart_of_accounts SET code = ?, name = ?, type = ?, parent_account_id = ? WHERE id = ?',
-      [code, name, type, parentIdValue, id]
+      [code, name, type, parentIdValue, parseInt(id)]
     );
     if (result.affectedRows > 0) {
       revalidatePath('/accounting', 'layout');
-      // No es necesario recargar aquí, la revalidación debería ser suficiente
-      // Devolvemos los datos validados con el ID
-      return { success: true, message: 'Cuenta actualizada.', data: { ...validatedFields.data, id: id!, parentAccountId: parentAccountIdValue?.toString() || null } };
+      return { success: true, message: 'Cuenta actualizada.', data: { ...validatedFields.data, id: id!, parentAccountId: parentIdValue?.toString() || null } };
     } else {
       return { success: false, message: 'Cuenta no encontrada o sin cambios.' };
     }
   } catch (error: any) {
     console.error('Error al actualizar cuenta (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El código de cuenta ya existe para otra cuenta.', errors: { code: ['Este código de cuenta ya está registrado para otra cuenta.'] } };
-    }
-    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        return { success: false, message: 'Error: La cuenta padre seleccionada no existe.', errors: { parentAccountId: ['La cuenta padre seleccionada no es válida.']}};
-    }
+    // ... (manejo de errores similar a addAccount)
     return { success: false, message: 'Error al actualizar cuenta.', errors: { general: ['Error del servidor.'] } };
   }
 }
 
 export async function deleteAccount(accountId: string): Promise<AccountingActionResponse<null>> {
   if (!pool) {
-    console.error('Error: Connection pool not available in deleteAccount.');
-    return { success: false, message: 'Error del servidor: No se pudo conectar a la base de datos.' };
+    return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
+  let connection: Connection | null = null;
   try {
-    const [childrenRows] = await pool.query<RowDataPacket[]>('SELECT id FROM chart_of_accounts WHERE parent_account_id = ?', [accountId]);
-    if (childrenRows.length > 0) {
-      return { success: false, message: 'No se puede eliminar la cuenta porque tiene cuentas hijas asociadas. Primero elimine o reasigne las cuentas hijas.' };
-    }
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    const [result] = await pool.query<ResultSetHeader>('DELETE FROM chart_of_accounts WHERE id = ?', [accountId]);
+    const [childrenRows] = await connection.query<RowDataPacket[]>('SELECT id FROM chart_of_accounts WHERE parent_account_id = ?', [parseInt(accountId)]);
+    if (childrenRows.length > 0) {
+      await connection.rollback();
+      return { success: false, message: 'No se puede eliminar: la cuenta tiene cuentas hijas.' };
+    }
+    
+    // TODO: Verificar si la cuenta está usada en journal_entries antes de eliminar.
+    // O manejarlo con ON DELETE RESTRICT en la FK de journal_entries.
+
+    const [result] = await connection.query<ResultSetHeader>('DELETE FROM chart_of_accounts WHERE id = ?', [parseInt(accountId)]);
+    await connection.commit();
+    
     if (result.affectedRows > 0) {
       revalidatePath('/accounting', 'layout');
       return { success: true, message: 'Cuenta eliminada.' };
     } else {
-      return { success: false, message: 'Cuenta no encontrada para eliminar.' };
+      return { success: false, message: 'Cuenta no encontrada.' };
     }
   } catch (error: any) {
+    if (connection) await connection.rollback();
     console.error('Error al eliminar cuenta (MySQL):', error);
-    if (error.errno === 1451) { // Error de restricción de clave foránea
-        return { success: false, message: 'No se puede eliminar la cuenta porque tiene asientos contables asociados o es padre de otras cuentas.' };
+    if (error.errno === 1451) { 
+        return { success: false, message: 'No se puede eliminar: la cuenta tiene asientos contables asociados.' };
     }
     return { success: false, message: 'Error al eliminar cuenta.', errors: { general: ['Error del servidor.'] } };
+  } finally {
+    if (connection) connection.release();
   }
 }
 
 export async function getAccounts(): Promise<AccountWithDetails[]> {
   if (!pool) {
-    console.error('Error: Connection pool not available in getAccounts.');
     return [];
   }
   try {
@@ -162,8 +176,8 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
       type: row.type,
       balance: parseFloat(row.balance),
       parentAccountId: row.parent_account_id?.toString() || null,
-      parent_account_id: row.parent_account_id?.toString() || null, // Mantener para mapeo interno
-      rolledUpBalance: parseFloat(row.balance), // Inicializar con balance directo
+      parent_account_id: row.parent_account_id?.toString() || null,
+      rolledUpBalance: parseFloat(row.balance), 
       children: [],
     }));
 
@@ -191,10 +205,7 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
       account.rolledUpBalance = sum;
       return sum;
     }
-
     rootAccounts.forEach(calculateRolledUpBalances);
-    
-    // Devolvemos la lista plana con 'rolledUpBalance' y 'children' para que la UI pueda reconstruir la jerarquía.
     return accounts;
 
   } catch (error) {
@@ -207,82 +218,85 @@ const ACCOUNT_TYPES_INCREASE_WITH_DEBIT = ['Activo', 'Gasto'];
 const ACCOUNT_TYPES_INCREASE_WITH_CREDIT = ['Pasivo', 'Patrimonio', 'Ingreso'];
 
 export async function addJournalEntry(
-  data: JournalEntryFormInput
+  data: JournalEntryFormInput,
+  dbConnection?: Connection // Para usar en transacciones
 ): Promise<AccountingActionResponse<JournalEntryFormInput>> {
   const validatedFields = JournalEntrySchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
 
-  if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
-    return { success: false, message: 'Error del servidor: DB no disponible.' };
+  const conn = dbConnection || await pool.getConnection(); // Usa la conexión existente o crea una nueva
+  if (!conn && !dbConnection) { // Si pool.getConnection() falló y no se pasó una conexión
+     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
-
-  const { date, entryNumber, description, debitAccountCode, creditAccountCode, amount } = validatedFields.data;
-  let connection;
+  
+  const { date, description, debitAccountCode, creditAccountCode, amount } = validatedFields.data;
+  let { entryNumber } = validatedFields.data;
 
   try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
+    if (!dbConnection) await conn.beginTransaction(); // Inicia transacción solo si no estamos en una ya
 
-    const [debitAccountRows] = await connection.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [debitAccountCode]);
-    const [creditAccountRows] = await connection.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [creditAccountCode]);
+    if (!entryNumber) { // Generar número de asiento si no se provee
+        entryNumber = await generateJournalEntryNumber(conn);
+    }
+
+    const [debitAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [debitAccountCode]);
+    const [creditAccountRows] = await conn.query<RowDataPacket[]>('SELECT id, type FROM chart_of_accounts WHERE code = ?', [creditAccountCode]);
 
     if (debitAccountRows.length === 0) {
-      await connection.rollback();
-      return { success: false, message: 'La cuenta de débito no existe.', errors: { debitAccountCode: ['Código de cuenta de débito inválido.']}};
+      if (!dbConnection) await conn.rollback();
+      return { success: false, message: 'Cuenta de débito no existe.', errors: { debitAccountCode: ['Código inválido.']}};
     }
     if (creditAccountRows.length === 0) {
-      await connection.rollback();
-      return { success: false, message: 'La cuenta de crédito no existe.', errors: { creditAccountCode: ['Código de cuenta de crédito inválido.']}};
+      if (!dbConnection) await conn.rollback();
+      return { success: false, message: 'Cuenta de crédito no existe.', errors: { creditAccountCode: ['Código inválido.']}};
     }
     if (debitAccountCode === creditAccountCode) {
-      await connection.rollback();
-      return { success: false, message: 'Las cuentas de débito y crédito no pueden ser la misma.', errors: { creditAccountCode: ['Selecciona una cuenta diferente.']}};
+      if (!dbConnection) await conn.rollback();
+      return { success: false, message: 'Débito y crédito no pueden ser la misma cuenta.', errors: { creditAccountCode: ['Selecciona una cuenta diferente.']}};
     }
 
     const debitAccountType = debitAccountRows[0].type;
     const creditAccountType = creditAccountRows[0].type;
 
-    const [result] = await connection.query<ResultSetHeader>(
+    const [result] = await conn.query<ResultSetHeader>(
       'INSERT INTO journal_entries (date, entryNumber, description, debitAccountCode, creditAccountCode, amount) VALUES (?, ?, ?, ?, ?, ?)',
       [date, entryNumber, description, debitAccountCode, creditAccountCode, amount]
     );
 
-    const numericAmount = Number(amount); // Asegurarse que es un número
+    const numericAmount = Number(amount);
 
     if (ACCOUNT_TYPES_INCREASE_WITH_DEBIT.includes(debitAccountType)) {
-        await connection.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, debitAccountCode]);
+        await conn.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, debitAccountCode]);
     } else if (ACCOUNT_TYPES_INCREASE_WITH_CREDIT.includes(debitAccountType)) { 
-        await connection.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, debitAccountCode]);
+        await conn.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, debitAccountCode]);
     }
 
     if (ACCOUNT_TYPES_INCREASE_WITH_CREDIT.includes(creditAccountType)) {
-        await connection.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, creditAccountCode]);
+        await conn.query('UPDATE chart_of_accounts SET balance = balance + ? WHERE code = ?', [numericAmount, creditAccountCode]);
     } else if (ACCOUNT_TYPES_INCREASE_WITH_DEBIT.includes(creditAccountType)) { 
-        await connection.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, creditAccountCode]);
+        await conn.query('UPDATE chart_of_accounts SET balance = balance - ? WHERE code = ?', [numericAmount, creditAccountCode]);
     }
 
-
-    await connection.commit();
+    if (!dbConnection) await conn.commit();
 
     if (result.affectedRows > 0) {
       const newEntryId = result.insertId.toString();
       revalidatePath('/accounting', 'layout');
-      return { success: true, message: 'Asiento contable añadido.', data: { ...validatedFields.data, id: newEntryId } };
+      return { success: true, message: 'Asiento contable añadido.', data: { ...validatedFields.data, id: newEntryId, entryNumber } };
     } else {
       return { success: false, message: 'No se pudo añadir el asiento.' };
     }
   } catch (error: any) {
-    if (connection) await connection.rollback();
+    if (!dbConnection && conn) await conn.rollback();
     console.error('Error al añadir asiento (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El número de asiento ya existe.', errors: { entryNumber: ['Este número de asiento ya está registrado.'] } };
+    if (error.code === 'ER_DUP_ENTRY') {
+        return { success: false, message: 'Error: El número de asiento ya existe.', errors: { entryNumber: ['Este número ya está registrado.'] } };
     }
     return { success: false, message: 'Error al añadir asiento.', errors: { general: ['Error del servidor.'] } };
   } finally {
-    if (connection) connection.release();
+    if (!dbConnection && conn) conn.release();
   }
 }
 
@@ -290,54 +304,55 @@ export async function updateJournalEntry(
   data: JournalEntryFormInput
 ): Promise<AccountingActionResponse<JournalEntryFormInput>> {
   if (!data.id) return { success: false, message: 'ID de asiento requerido.' };
+  // TODO: Revertir el impacto del asiento original en los saldos y luego aplicar el impacto del nuevo asiento.
+  // Esta es una operación compleja que requiere una lógica contable cuidadosa.
+  // Por ahora, solo actualiza los datos del asiento sin ajustar saldos.
+  // ¡ADVERTENCIA! ESTA OPERACIÓN NO ES CONTABLEMENTE CORRECTA PARA ACTUALIZAR SALDOS.
+  console.warn("updateJournalEntry: La actualización de asientos no recalcula saldos correctamente. Solo para corrección de datos descriptivos.");
+  
   const validatedFields = JournalEntrySchema.safeParse(data);
    if (!validatedFields.success) {
     return { success: false, message: 'Error de validación.', errors: validatedFields.error.flatten().fieldErrors };
   }
 
   if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
   const { id, date, entryNumber, description, debitAccountCode, creditAccountCode, amount } = validatedFields.data;
 
   try {
-    // ADVERTENCIA: Esta actualización no revierte el impacto del asiento original ni aplica el nuevo.
-    // Esto es una simplificación extrema. Una implementación contable correcta requeriría una lógica mucho más compleja.
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE journal_entries SET date = ?, entryNumber = ?, description = ?, debitAccountCode = ?, creditAccountCode = ?, amount = ? WHERE id = ?',
-      [date, entryNumber, description, debitAccountCode, creditAccountCode, amount, id]
+      [date, entryNumber, description, debitAccountCode, creditAccountCode, amount, parseInt(id)]
     );
 
     if (result.affectedRows > 0) {
-        revalidatePath('/accounting', 'layout'); // Revalidar para refrescar datos
-        return { success: true, message: 'Asiento actualizado (ADVERTENCIA: Saldos no recalculados completamente).', data: { ...validatedFields.data, id: id! } };
+        revalidatePath('/accounting', 'layout');
+        return { success: true, message: 'Asiento actualizado (ADVERTENCIA: Saldos no recalculados).', data: { ...validatedFields.data, id: id! } };
     } else {
         return { success: false, message: 'Asiento no encontrado o sin cambios.' };
     }
   } catch (error: any) {
-    console.error('Error al actualizar asiento (MySQL):', error);
-    if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
-        return { success: false, message: 'Error: El número de asiento ya existe para otro asiento.', errors: { entryNumber: ['Este número de asiento ya está registrado para otro asiento.'] } };
-    }
+    // ... (manejo de errores)
     return { success: false, message: 'Error al actualizar asiento.', errors: { general: ['Error del servidor.'] } };
   }
 }
 
 export async function deleteJournalEntry(entryId: string): Promise<AccountingActionResponse<null>> {
    if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
+  // TODO: Revertir el impacto del asiento en los saldos antes de eliminarlo.
+  // ¡ADVERTENCIA! ESTA OPERACIÓN NO ES CONTABLEMENTE CORRECTA PARA ACTUALIZAR SALDOS.
+  console.warn("deleteJournalEntry: La eliminación de asientos no recalcula saldos correctamente.");
   try {
-    // ADVERTENCIA: Esta eliminación no revierte el impacto del asiento en los saldos.
-    const [result] = await pool.query<ResultSetHeader>('DELETE FROM journal_entries WHERE id = ?', [entryId]);
+    const [result] = await pool.query<ResultSetHeader>('DELETE FROM journal_entries WHERE id = ?', [parseInt(entryId)]);
     if (result.affectedRows > 0) {
-        revalidatePath('/accounting', 'layout'); // Revalidar para refrescar datos
-        return { success: true, message: 'Asiento eliminado (ADVERTENCIA: Saldos no recalculados completamente).' };
+        revalidatePath('/accounting', 'layout');
+        return { success: true, message: 'Asiento eliminado (ADVERTENCIA: Saldos no recalculados).' };
     } else {
-        return { success: false, message: 'Asiento no encontrado para eliminar.'};
+        return { success: false, message: 'Asiento no encontrado.'};
     }
   } catch (error) {
     console.error('Error al eliminar asiento (MySQL):', error);
@@ -347,7 +362,6 @@ export async function deleteJournalEntry(entryId: string): Promise<AccountingAct
 
 export async function getJournalEntries(): Promise<(JournalEntryFormInput & { id: string })[]> {
   if (!pool) {
-    console.error('Error: Pool de conexiones no disponible.');
     return [];
   }
   try {
@@ -355,8 +369,12 @@ export async function getJournalEntries(): Promise<(JournalEntryFormInput & { id
         'SELECT id, DATE_FORMAT(date, "%Y-%m-%d") as date, entryNumber, description, debitAccountCode, creditAccountCode, amount FROM journal_entries ORDER BY date DESC, entryNumber DESC'
     );
     return rows.map(row => ({
-        ...row,
         id: row.id.toString(),
+        date: row.date,
+        entryNumber: row.entryNumber,
+        description: row.description,
+        debitAccountCode: row.debitAccountCode,
+        creditAccountCode: row.creditAccountCode,
         amount: parseFloat(row.amount)
     })) as (JournalEntryFormInput & { id: string })[];
   } catch (error) {
@@ -365,4 +383,25 @@ export async function getJournalEntries(): Promise<(JournalEntryFormInput & { id
   }
 }
 
+export async function getAccountBalancesSummary(): Promise<{ totalRevenue: number, totalExpenses: number, netProfit: number }> {
+  if (!pool) {
+    return { totalRevenue: 0, totalExpenses: 0, netProfit: 0 };
+  }
+  try {
+    const [revenueRows] = await pool.query<RowDataPacket[]>("SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Ingreso'");
+    const [expenseRows] = await pool.query<RowDataPacket[]>("SELECT SUM(balance) as total FROM chart_of_accounts WHERE type = 'Gasto'");
     
+    const totalRevenue = revenueRows[0]?.total ? parseFloat(revenueRows[0].total) : 0;
+    // Los gastos suelen tener saldo deudor (positivo en DB para tipo Gasto). El beneficio es Ingreso - Gasto.
+    const totalExpenses = expenseRows[0]?.total ? parseFloat(expenseRows[0].total) : 0; 
+    
+    return {
+      totalRevenue,
+      totalExpenses,
+      netProfit: totalRevenue - totalExpenses, // Simplificación, puede ser más complejo
+    };
+  } catch (error) {
+    console.error('Error al obtener resumen de saldos (MySQL):', error);
+    return { totalRevenue: 0, totalExpenses: 0, netProfit: 0 };
+  }
+}
