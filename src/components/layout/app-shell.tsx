@@ -40,29 +40,52 @@ interface AppShellProps {
   session: SessionPayload | null;
 }
 
-const ROLE_ACCESS_PATTERNS: Record<string, RegExp[]> = {
+// Definición de patrones de acceso por rol para la UI del Sidebar
+// Debe ser consistente con el middleware.
+const ROLE_ACCESS_PATTERNS_UI: Record<string, RegExp[]> = {
   'Default': [/^\/$/],
   'Administrador': [/^\/.*$/],
-  'Contador': [/^\/$/, /^\/accounting(\/.*)?$/, /^\/expenses(\/.*)?$/, /^\/payments(\/.*)?$/],
-  'Gerente': [/^\/$/, /^\/sales(\/.*)?$/, /^\/purchases(\/.*)?$/, /^\/inventory(\/.*)?$/, /^\/contacts(\/.*)?$/, /^\/payments(\/.*)?$/], // Gerente también podría ver pagos
-  'Almacenero': [/^\/$/, /^\/inventory(\/.*)?$/],
-  'Comercial': [/^\/$/, /^\/contacts(\/.*)?$/, /^\/sales(\/.*)?$/],
+  'Contador': [
+    /^\/$/,
+    /^\/accounting(\/.*)?$/,
+    /^\/expenses(\/.*)?$/,
+    /^\/payments(\/.*)?$/,
+  ],
+  'Gerente': [
+    /^\/$/,
+    /^\/sales(\/.*)?$/,
+    /^\/purchases(\/.*)?$/,
+    /^\/inventory(\/.*)?$/,
+    /^\/contacts(\/.*)?$/,
+    /^\/payments(\/.*)?$/,
+  ],
+  'Almacenero': [
+    /^\/$/,
+    /^\/inventory(\/.*)?$/,
+  ],
+  'Comercial': [
+    /^\/$/,
+    /^\/contacts(\/.*)?$/,
+    /^\/sales(\/.*)?$/,
+  ],
 };
 
 export function AppShell({ children, session }: AppShellProps) {
   const pathname = usePathname();
   const isLoginPage = pathname === '/login';
 
+  // No mostrar Sidebar ni AppHeader en la página de login,
+  // o si no hay sesión (aunque el middleware debería redirigir en este último caso)
   const showAppShellUI = !isLoginPage && session;
 
   return (
     <SidebarProvider defaultOpen>
-      {showAppShellUI && <Sidebar_Internal navLinks={allNavLinks} pathname={pathname} session={session} />}
+      {showAppShellUI && <Sidebar_Internal pathname={pathname} session={session} />}
       <div className="flex flex-col flex-1 overflow-hidden">
         {showAppShellUI && <AppHeader session={session} />}
         <main className={`flex-1 overflow-y-auto bg-background ${isLoginPage ? 'h-screen' : ''}`}>
           {isLoginPage ? (
-            children
+            children // El LoginLayout se encarga de su propia estructura
           ) : (
             <SidebarInset>
               <div className="p-4 sm:p-6 lg:p-8">
@@ -76,20 +99,20 @@ export function AppShell({ children, session }: AppShellProps) {
   );
 }
 
-function Sidebar_Internal({ navLinks: allNavLinks, pathname, session }: { navLinks: NavLink[]; pathname: string | null; session: SessionPayload | null }) {
+function Sidebar_Internal({ pathname, session }: { pathname: string | null; session: SessionPayload | null }) {
   const { open, state } = useSidebar();
   const userRole = session?.roleName || 'Default';
 
   const filteredNavLinks = useMemo(() => {
-    if (!session) return [];
+    if (!session) return []; // Si no hay sesión, no mostrar enlaces
 
-    const allowedPatterns = ROLE_ACCESS_PATTERNS[userRole] || ROLE_ACCESS_PATTERNS['Default'];
+    const allowedPatterns = ROLE_ACCESS_PATTERNS_UI[userRole] || ROLE_ACCESS_PATTERNS_UI['Default'];
 
     return allNavLinks.filter(link => {
-      if (link.href === '/') return true;
+      if (link.href === '/') return true; // El dashboard es siempre accesible si hay sesión
       return allowedPatterns.some(pattern => pattern.test(link.href));
     });
-  }, [userRole, session]); // Removed allNavLinks from dependency array as it's constant
+  }, [userRole, session]);
 
 
   return (
@@ -151,7 +174,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
     setMounted(true);
   }, []);
 
-  if (!session) {
+  if (!session) { // Si no hay sesión, no mostrar nada
     return null;
   }
 
@@ -160,7 +183,7 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
   const showInSidebar = !isMobile && (open || state === "expanded");
 
 
-  if (showInSidebar) { // UserMenu en la Sidebar (cuando está expandida)
+  if (showInSidebar) {
      return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -200,12 +223,11 @@ function UserMenu({ session }: { session: SessionPayload | null }) {
     );
   }
 
-  // UserMenu en la AppHeader (o sidebar colapsada)
   return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="rounded-full h-9 w-9 p-0"> {/* Más pequeño */}
-            <Avatar className="h-8 w-8"> {/* Avatar más pequeño */}
+          <Button variant="ghost" className="rounded-full h-9 w-9 p-0">
+            <Avatar className="h-8 w-8">
               <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={userName || "Usuario"} data-ai-hint="user avatar"/>
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
