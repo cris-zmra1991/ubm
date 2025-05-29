@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Calculator, PlusCircle, Edit, Trash2, FileText, DollarSign, TrendingUp, TrendingDown, BarChart3, Landmark, FilePenLine } from "lucide-react";
+import { Calculator, PlusCircle, Edit, Trash2, FileText, DollarSign, TrendingUp, TrendingDown, BarChart3, Landmark, FilePenLine, Loader2 } from "lucide-react";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from "recharts"
 import type { ChartConfig } from "@/components/ui/chart"
@@ -24,11 +24,12 @@ import {
   type AccountWithDetails,
   addAccount, updateAccount, deleteAccount, getAccounts,
   addJournalEntry, updateJournalEntry, deleteJournalEntry, getJournalEntries,
-  getAccountBalancesSummary
+  getAccountBalancesSummary,
+  generateBalanceSheet, type BalanceSheetData,
+  generateIncomeStatement, type IncomeStatementData
 } from "@/app/actions/accounting.actions";
 import { useToast } from "@/hooks/use-toast";
 
-// Datos de ejemplo para el gráfico, idealmente vendrían del backend
 const chartDataExample = [
   { month: "Enero", revenue: 1860, expenses: 800 }, { month: "Febrero", revenue: 3050, expenses: 1200 },
   { month: "Marzo", revenue: 2370, expenses: 950 }, { month: "Abril", revenue: 730, expenses: 1100 },
@@ -100,15 +101,27 @@ export default function AccountingPage() {
   const [editingJournalEntry, setEditingJournalEntry] = useState<(JournalEntryFormInput & { id: string }) | undefined>(undefined);
   const [deletingJournalEntryId, setDeletingJournalEntryId] = useState<string | null>(null);
 
+  // Estados para informes
+  const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheetData | null>(null);
+  const [isBalanceSheetLoading, setIsBalanceSheetLoading] = useState(false);
+  const [incomeStatementData, setIncomeStatementData] = useState<IncomeStatementData | null>(null);
+  const [isIncomeStatementLoading, setIsIncomeStatementLoading] = useState(false);
+
+
   const refreshAccountingData = async () => {
-    const [accountsData, journalEntriesData, summaryData] = await Promise.all([
-        getAccounts(),
-        getJournalEntries(),
-        getAccountBalancesSummary()
-    ]);
-    setChartOfAccounts(accountsData);
-    setJournalEntries(journalEntriesData);
-    setBalancesSummary(summaryData);
+    try {
+        const [accountsData, journalEntriesData, summaryData] = await Promise.all([
+            getAccounts(),
+            getJournalEntries(),
+            getAccountBalancesSummary()
+        ]);
+        setChartOfAccounts(accountsData);
+        setJournalEntries(journalEntriesData);
+        setBalancesSummary(summaryData);
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los datos contables." });
+        console.error("Error refreshing accounting data:", error);
+    }
   };
 
   useEffect(() => {
@@ -134,7 +147,6 @@ export default function AccountingPage() {
   };
 
   const handleJournalEntrySubmit = async (data: JournalEntryFormInput) => {
-    // Los asientos ahora son automáticos, este formulario es para ajustes.
     const response = editingJournalEntry ? await updateJournalEntry({ ...data, id: editingJournalEntry.id! }) : await addJournalEntry(data);
     if (response.success) {
       toast({ title: "Éxito", description: response.message });
@@ -151,6 +163,35 @@ export default function AccountingPage() {
     if(response.success) refreshAccountingData();
     setDeletingJournalEntryId(null);
   };
+
+  const handleGenerateBalanceSheet = async () => {
+    setIsBalanceSheetLoading(true);
+    setBalanceSheetData(null);
+    try {
+      const data = await generateBalanceSheet();
+      setBalanceSheetData(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "No se pudo generar el Balance General." });
+      console.error("Error generating balance sheet:", error);
+    } finally {
+      setIsBalanceSheetLoading(false);
+    }
+  };
+
+  const handleGenerateIncomeStatement = async () => {
+    setIsIncomeStatementLoading(true);
+    setIncomeStatementData(null);
+    try {
+      const data = await generateIncomeStatement();
+      setIncomeStatementData(data);
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "No se pudo generar el Estado de Resultados." });
+      console.error("Error generating income statement:", error);
+    } finally {
+      setIsIncomeStatementLoading(false);
+    }
+  };
+
 
   const renderAccountsRows = (accountsToRender: AccountWithDetails[], level = 0): JSX.Element[] => {
     let rows: JSX.Element[] = [];
@@ -199,7 +240,7 @@ export default function AccountingPage() {
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Ingresos Totales</CardTitle><TrendingUp className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalRevenue.toFixed(2)}</div></CardContent></Card>
                 <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Gastos Totales</CardTitle><TrendingDown className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.totalExpenses.toFixed(2)}</div></CardContent></Card>
-                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Beneficio Neto</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.netProfit.toFixed(2)}</div><p className={`text-xs ${balancesSummary.netProfit >= 0 ? 'text-accent' : 'text-destructive'}`}>{balancesSummary.netProfit >=0 ? 'Positivo' : 'Negativo'}</p></CardContent></Card>
+                <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Beneficio Neto</CardTitle><DollarSign className="h-4 w-4 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">€{balancesSummary.netProfit.toFixed(2)}</div><p className={`text-xs ${balancesSummary.netProfit >= 0 ? 'text-green-600' : 'text-destructive'}`}>{balancesSummary.netProfit >=0 ? 'Positivo' : 'Negativo'}</p></CardContent></Card>
               </div>
               <Card><CardHeader><CardTitle>Resumen de Ingresos vs Gastos (Ejemplo)</CardTitle><CardDescription>Rendimiento de los últimos 6 meses. (Datos de ejemplo)</CardDescription></CardHeader>
                 <CardContent className="h-[300px] w-full"><ChartContainer config={chartConfig} className="h-full w-full">
@@ -229,13 +270,93 @@ export default function AccountingPage() {
 
             <TabsContent value="reports" className="mt-6">
                 <Card>
-                    <CardHeader><CardTitle>Informes Financieros</CardTitle><CardDescription>Genera balances, estados de resultados y otros informes. (Funcionalidad en desarrollo)</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
-                            <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                            <p className="text-muted-foreground">La generación de informes financieros aparecerá aquí.</p>
-                             <Button variant="secondary" className="mt-4" disabled>Generar Balance General</Button>
+                    <CardHeader><CardTitle>Informes Financieros</CardTitle><CardDescription>Genera balances, estados de resultados y otros informes.</CardDescription></CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="flex gap-4 mb-6">
+                            <Button onClick={handleGenerateBalanceSheet} disabled={isBalanceSheetLoading}>
+                                {isBalanceSheetLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Generar Balance General
+                            </Button>
+                            <Button onClick={handleGenerateIncomeStatement} disabled={isIncomeStatementLoading}>
+                                {isIncomeStatementLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Generar Estado de Resultados
+                            </Button>
                         </div>
+
+                        {isBalanceSheetLoading && <div className="text-center p-4"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /><p>Generando Balance General...</p></div>}
+                        {balanceSheetData && (
+                            <Card>
+                                <CardHeader><CardTitle>Balance General</CardTitle></CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Activos</h4>
+                                            <Table><TableHeader><TableRow><TableHead>Cuenta</TableHead><TableHead className="text-right">Saldo (€)</TableHead></TableRow></TableHeader>
+                                                <TableBody>
+                                                    {balanceSheetData.assets.map(acc => <TableRow key={acc.id}><TableCell>{acc.code} - {acc.name}</TableCell><TableCell className="text-right">{(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell></TableRow>)}
+                                                    <TableRow className="font-bold"><TableCell>Total Activos</TableCell><TableCell className="text-right">{balanceSheetData.totalAssets.toFixed(2)}</TableCell></TableRow>
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Pasivos</h4>
+                                            <Table><TableHeader><TableRow><TableHead>Cuenta</TableHead><TableHead className="text-right">Saldo (€)</TableHead></TableRow></TableHeader>
+                                                <TableBody>
+                                                    {balanceSheetData.liabilities.map(acc => <TableRow key={acc.id}><TableCell>{acc.code} - {acc.name}</TableCell><TableCell className="text-right">{Math.abs(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell></TableRow>)}
+                                                    <TableRow className="font-bold"><TableCell>Total Pasivos</TableCell><TableCell className="text-right">{balanceSheetData.totalLiabilities.toFixed(2)}</TableCell></TableRow>
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold mb-2">Patrimonio</h4>
+                                            <Table><TableHeader><TableRow><TableHead>Cuenta</TableHead><TableHead className="text-right">Saldo (€)</TableHead></TableRow></TableHeader>
+                                                <TableBody>
+                                                    {balanceSheetData.equity.map(acc => <TableRow key={acc.id}><TableCell>{acc.code} - {acc.name}</TableCell><TableCell className="text-right">{Math.abs(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell></TableRow>)}
+                                                    <TableRow className="font-bold"><TableCell>Total Patrimonio</TableCell><TableCell className="text-right">{balanceSheetData.totalEquity.toFixed(2)}</TableCell></TableRow>
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </div>
+                                    <div className="mt-4 font-bold text-lg">Total Pasivos + Patrimonio: €{balanceSheetData.totalLiabilitiesAndEquity.toFixed(2)}</div>
+                                    {Math.abs(balanceSheetData.totalAssets - balanceSheetData.totalLiabilitiesAndEquity) > 0.01 && (
+                                        <p className="text-destructive mt-2">¡Descuadre! Total Activos no es igual a Total Pasivos + Patrimonio.</p>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {isIncomeStatementLoading && <div className="text-center p-4"><Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" /><p>Generando Estado de Resultados...</p></div>}
+                        {incomeStatementData && (
+                            <Card className="mt-6">
+                                <CardHeader><CardTitle>Estado de Resultados</CardTitle></CardHeader>
+                                <CardContent>
+                                    <h4 className="font-semibold mb-2">Ingresos</h4>
+                                    <Table><TableHeader><TableRow><TableHead>Cuenta</TableHead><TableHead className="text-right">Saldo (€)</TableHead></TableRow></TableHeader>
+                                        <TableBody>
+                                            {incomeStatementData.revenues.map(acc => <TableRow key={acc.id}><TableCell>{acc.code} - {acc.name}</TableCell><TableCell className="text-right">{Math.abs(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell></TableRow>)}
+                                            <TableRow className="font-bold"><TableCell>Total Ingresos</TableCell><TableCell className="text-right">{incomeStatementData.totalRevenues.toFixed(2)}</TableCell></TableRow>
+                                        </TableBody>
+                                    </Table>
+                                    <h4 className="font-semibold mt-4 mb-2">Gastos</h4>
+                                    <Table><TableHeader><TableRow><TableHead>Cuenta</TableHead><TableHead className="text-right">Saldo (€)</TableHead></TableRow></TableHeader>
+                                        <TableBody>
+                                            {incomeStatementData.expenses.map(acc => <TableRow key={acc.id}><TableCell>{acc.code} - {acc.name}</TableCell><TableCell className="text-right">{(acc.rolledUpBalance ?? acc.balance).toFixed(2)}</TableCell></TableRow>)}
+                                            <TableRow className="font-bold"><TableCell>Total Gastos</TableCell><TableCell className="text-right">{incomeStatementData.totalExpenses.toFixed(2)}</TableCell></TableRow>
+                                        </TableBody>
+                                    </Table>
+                                    <div className={`mt-4 font-bold text-lg ${incomeStatementData.netIncome >= 0 ? 'text-green-600' : 'text-destructive'}`}>
+                                        Beneficio Neto (Pérdida): €{incomeStatementData.netIncome.toFixed(2)}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                         {!isBalanceSheetLoading && !balanceSheetData && !isIncomeStatementLoading && !incomeStatementData && (
+                            <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
+                                <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                                <p className="text-muted-foreground">Selecciona un informe para generar.</p>
+                            </div>
+                         )}
                     </CardContent>
                 </Card>
             </TabsContent>
