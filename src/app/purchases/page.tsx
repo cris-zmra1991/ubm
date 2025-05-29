@@ -19,7 +19,7 @@ import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { PurchaseOrderSchema } from "@/app/schemas/purchases.schemas";
 import type { PurchaseOrderFormInput, PurchaseOrderItemFormInput } from "@/app/schemas/purchases.schemas";
-import { addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders, type PurchaseOrderWithDetails } from "@/app/actions/purchases.actions";
+import { addPurchaseOrder, updatePurchaseOrder, deletePurchaseOrder, getPurchaseOrders, getPurchaseOrderById, type PurchaseOrderWithDetails } from "@/app/actions/purchases.actions";
 import { getInventoryItems, type InventoryItemFormInput } from "@/app/actions/inventory.actions";
 import { getContacts, type ContactFormInput } from "@/app/actions/contacts.actions";
 import { useToast } from "@/hooks/use-toast";
@@ -42,8 +42,8 @@ interface AppPurchaseOrder extends Omit<PurchaseOrderFormInput, 'items' | 'vendo
   totalAmount: number;
   vendorId: string;
   vendorName?: string;
-  description: string; // Asegurar que esté aquí
-  items: PurchaseOrderItemFormInput[];
+  description: string;
+  items: (PurchaseOrderItemFormInput & { itemName?: string, itemSku?: string })[];
 }
 
 
@@ -51,7 +51,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<PurchaseOrderFormInput>({
     resolver: zodResolver(PurchaseOrderSchema),
     defaultValues: purchaseOrder ?
-      { ...purchaseOrder, vendorId: purchaseOrder.vendorId.toString() } :
+      { ...purchaseOrder, vendorId: purchaseOrder.vendorId.toString(), items: purchaseOrder.items.map(item => ({...item, inventoryItemId: item.inventoryItemId.toString()})) } :
       {
         vendorId: '',
         date: new Date().toISOString().split('T')[0],
@@ -67,6 +67,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
   });
 
   const watchedItems = watch("items");
+  const currentStatus = watch("status");
 
   const handleInventoryItemChange = (itemIndex: number, itemId: string) => {
     const selectedItem = inventoryItems.find(invItem => invItem.id === itemId);
@@ -81,6 +82,9 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
     return sum + (quantity * unitPrice);
   }, 0);
 
+  const isFormEditable = !purchaseOrder || purchaseOrder.status === 'Borrador';
+  const isStatusEditable = !purchaseOrder || purchaseOrder.status !== 'Pagado';
+
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4 max-h-[80vh] overflow-y-auto p-1">
@@ -91,7 +95,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
             name="vendorId"
             control={control}
             render={({ field }) => (
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!isFormEditable && !!purchaseOrder}>
                 <SelectTrigger id="vendorId"><SelectValue placeholder="Seleccionar proveedor..." /></SelectTrigger>
                 <SelectContent>
                   {vendorContacts.map(contact => (
@@ -105,13 +109,13 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
         </div>
         <div>
           <Label htmlFor="date">Fecha de Orden</Label>
-          <Input id="date" type="date" {...register("date")} />
+          <Input id="date" type="date" {...register("date")} disabled={!isFormEditable && !!purchaseOrder} />
           {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
         </div>
       </div>
       <div>
         <Label htmlFor="description">Descripción</Label>
-        <Textarea id="description" {...register("description")} placeholder="Ej. Compra mensual de material de oficina" />
+        <Textarea id="description" {...register("description")} placeholder="Ej. Compra mensual de material de oficina" disabled={!isFormEditable && !!purchaseOrder} />
         {errors.description && <p className="text-sm text-destructive mt-1">{errors.description.message}</p>}
       </div>
        <div>
@@ -120,17 +124,15 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
           name="status"
           control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!!purchaseOrder && (purchaseOrder.status === 'Pagado' || purchaseOrder.status === 'Recibida')}>
+            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!isStatusEditable}>
               <SelectTrigger id="status"><SelectValue placeholder="Seleccionar estado..." /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Borrador">Borrador</SelectItem>
-                <SelectItem value="Confirmada">Confirmada</SelectItem>
-                <SelectItem value="Enviada">Enviada</SelectItem>
-                 {/* Solo permitir cambiar a Recibida si no es Pagado */}
-                {(purchaseOrder?.status !== 'Pagado') && <SelectItem value="Recibida">Recibida</SelectItem>}
-                <SelectItem value="Cancelada">Cancelada</SelectItem>
-                {/* Mostrar Pagado si ya está en ese estado, pero no permitir seleccionarlo activamente aquí */}
-                {purchaseOrder?.status === 'Pagado' && <SelectItem value="Pagado" disabled>Pagado</SelectItem>}
+                {purchaseOrder?.status === 'Borrador' && <SelectItem value="Borrador">Borrador</SelectItem>}
+                {(isStatusEditable || currentStatus === "Confirmada") && <SelectItem value="Confirmada">Confirmada</SelectItem>}
+                {(isStatusEditable || currentStatus === "Enviada") &&<SelectItem value="Enviada">Enviada</SelectItem>}
+                {(isStatusEditable || currentStatus === "Recibida") &&<SelectItem value="Recibida">Recibida</SelectItem>}
+                {(isStatusEditable || currentStatus === "Cancelada") && <SelectItem value="Cancelada">Cancelada</SelectItem>}
+                {currentStatus === 'Pagado' && <SelectItem value="Pagado" disabled>Pagado</SelectItem>}
               </SelectContent>
             </Select>
           )}
@@ -154,7 +156,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
                       handleInventoryItemChange(index, value);
                     }}
                     defaultValue={selectField.value}
-                    disabled={!!purchaseOrder && purchaseOrder.status !== 'Borrador'}
+                    disabled={!isFormEditable}
                   >
                     <SelectTrigger><SelectValue placeholder="Seleccionar artículo..." /></SelectTrigger>
                     <SelectContent>
@@ -169,16 +171,16 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
             </div>
             <div className="col-span-2">
               <Label htmlFor={`items.${index}.quantity`} className="text-xs">Cantidad</Label>
-              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!!purchaseOrder && purchaseOrder.status !== 'Borrador'} />
+              <Input id={`items.${index}.quantity`} type="number" {...register(`items.${index}.quantity`, { valueAsNumber: true, min: 1 })} disabled={!isFormEditable} />
               {errors.items?.[index]?.quantity && <p className="text-sm text-destructive mt-1">{errors.items[index]?.quantity?.message}</p>}
             </div>
             <div className="col-span-3">
               <Label htmlFor={`items.${index}.unitPrice`} className="text-xs">Costo Unit. (€)</Label>
-              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!!purchaseOrder && purchaseOrder.status !== 'Borrador'}/>
+              <Input id={`items.${index}.unitPrice`} type="number" step="0.01" {...register(`items.${index}.unitPrice`, { valueAsNumber: true })} disabled={!isFormEditable}/>
               {errors.items?.[index]?.unitPrice && <p className="text-sm text-destructive mt-1">{errors.items[index]?.unitPrice?.message}</p>}
             </div>
             <div className="col-span-2 flex items-end">
-              {(!purchaseOrder || purchaseOrder.status === 'Borrador') && fields.length > 1 && (
+              {isFormEditable && fields.length > 1 && (
                 <Button type="button" variant="ghost" size="sm" onClick={() => remove(index)} className="text-destructive hover:text-destructive">
                   <Trash className="h-4 w-4" />
                 </Button>
@@ -186,7 +188,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
             </div>
           </div>
         ))}
-         {(!purchaseOrder || purchaseOrder.status === 'Borrador') && (
+         {isFormEditable && (
             <Button type="button" variant="outline" size="sm" onClick={() => append({ inventoryItemId: '', quantity: 1, unitPrice: 0 })}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Añadir Artículo
             </Button>
@@ -200,7 +202,7 @@ function PurchaseOrderForm({ purchaseOrder, inventoryItems, vendorContacts, onFo
 
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting || (purchaseOrder?.status === 'Pagado')}>
+        <Button type="submit" disabled={isSubmitting || purchaseOrder?.status === 'Pagado'}>
           {isSubmitting ? (purchaseOrder ? "Guardando..." : "Creando...") : (purchaseOrder ? "Guardar Cambios" : "Crear Orden")}
         </Button>
       </DialogFooter>
@@ -220,14 +222,19 @@ export default function PurchasesPage() {
   const [activeTab, setActiveTab] = useState("all");
 
   const refreshData = async () => {
-    const [serverPOs, serverInvItems, serverVendorContacts] = await Promise.all([
-        getPurchaseOrders(),
-        getInventoryItems(),
-        getContacts({ type: 'Proveedor' })
-    ]);
-    setPurchaseOrders(serverPOs.map(po => ({ ...po, description: po.description || '', items: [] })));
-    setInventoryItems(serverInvItems);
-    setVendorContacts(serverVendorContacts);
+    try {
+        const [serverPOs, serverInvItems, serverVendorContacts] = await Promise.all([
+            getPurchaseOrders(),
+            getInventoryItems(),
+            getContacts({ type: 'Proveedor' })
+        ]);
+        setPurchaseOrders(serverPOs.map(po => ({ ...po, description: po.description || '', items: [] /* Los items completos se cargan al editar */ })));
+        setInventoryItems(serverInvItems);
+        setVendorContacts(serverVendorContacts);
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los datos iniciales."})
+        console.error("Error refreshing purchase data:", error);
+    }
   };
 
   useEffect(() => {
@@ -273,12 +280,17 @@ export default function PurchasesPage() {
   };
 
   const openEditDialog = async (poId: string) => {
-    const orderToEdit = await getPurchaseOrderById(poId);
-    if (orderToEdit) {
-        setEditingPurchaseOrder(orderToEdit as AppPurchaseOrder);
-        setIsEditDialogOpen(true);
-    } else {
-        toast({ variant: "destructive", title: "Error", description: "No se pudo cargar la orden para editar."});
+    try {
+        const orderToEdit = await getPurchaseOrderById(poId);
+        if (orderToEdit) {
+            setEditingPurchaseOrder(orderToEdit as AppPurchaseOrder); // Cast as AppPurchaseOrder as it includes items.
+            setIsEditDialogOpen(true);
+        } else {
+            toast({ variant: "destructive", title: "Error", description: "No se pudo cargar la orden para editar."});
+        }
+    } catch (error) {
+        toast({ variant: "destructive", title: "Error", description: "Error al cargar la orden." });
+        console.error("Error fetching purchase order for edit:", error);
     }
   };
 
@@ -374,7 +386,7 @@ export default function PurchasesPage() {
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingPurchaseOrderId(po.id! )}} className="text-destructive dark:text-destructive-foreground focus:text-destructive" disabled={po.status === 'Pagado' || po.status === 'Recibida' || po.status === 'Confirmada'}>
+                                    <DropdownMenuItem onSelect={(e) => {e.preventDefault(); setDeletingPurchaseOrderId(po.id! )}} className="text-destructive dark:text-destructive-foreground focus:text-destructive" disabled={!['Borrador', 'Cancelada'].includes(po.status)}>
                                       <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                     </DropdownMenuItem>
                                   </AlertDialogTrigger>
