@@ -11,10 +11,14 @@ export const InventoryItemSchema = z.object({
   unitPrice: z.coerce.number().positive('El precio unitario (costo) debe ser positivo.'),
   imageUrl: z.string().url({ message: "URL de imagen inválida." }).optional().or(z.literal('')),
   supplier: z.string().optional().nullable(),
-  defaultDebitAccountId: z.string().nullable().optional().default(null)
-    .describe("ID de la cuenta de Activo (Inventario) o COGS"),
-  defaultCreditAccountId: z.string().nullable().optional().default(null)
+  
+  inventory_asset_account_id: z.string().nullable().optional().default(null)
+    .describe("ID de la cuenta de Activo (Inventario)"),
+  cogs_account_id: z.string().nullable().optional().default(null)
+    .describe("ID de la cuenta de Gasto (Costo de Mercancía Vendida)"),
+  defaultCreditAccountId: z.string().nullable().optional().default(null) // Mantenemos este nombre si se refiere a Ingresos por Venta
     .describe("ID de la cuenta de Ingreso por Venta"),
+
   feePercentage: z.coerce.number().min(0).max(1000).nullable().optional()
     .describe("Porcentaje de ganancia sobre el costo (opcional)"),
   salePrice: z.coerce.number().positive('El precio de venta debe ser positivo.').nullable().optional()
@@ -26,3 +30,4 @@ export const AdjustStockSchema = z.object({
   quantityChange: z.coerce.number().int('La cantidad debe ser un número entero.'),
   reason: z.string().min(1, 'Se requiere un motivo para el ajuste.'),
 });
+

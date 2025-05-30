@@ -7,7 +7,6 @@ import { pool } from '@/lib/db';
 import type { ResultSetHeader, RowDataPacket, Connection } from 'mysql2/promise';
 import { InventoryItemSchema, AdjustStockSchema } from '@/app/schemas/inventory.schemas';
 
-// TODO: SQL - CREATE TABLE inventory_items (... default_debit_account_id INT NULL, default_credit_account_id INT NULL, fee_percentage DECIMAL(5,2) NULL, sale_price DECIMAL(10,2) NULL, FOREIGN KEY (default_debit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL, FOREIGN KEY (default_credit_account_id) REFERENCES chart_of_accounts(id) ON DELETE SET NULL);
 
 export type InventoryItemFormInput = z.infer<typeof InventoryItemSchema>;
 export type AdjustStockFormInput = z.infer<typeof AdjustStockSchema>;
@@ -36,7 +35,7 @@ export async function addInventoryItem(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
+  const { name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, inventory_asset_account_id, cogs_account_id, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
   let finalSalePrice = salePrice;
   if (salePrice === null && feePercentage !== null && unitPrice > 0) {
     finalSalePrice = parseFloat((unitPrice * (1 + feePercentage / 100)).toFixed(2));
@@ -45,8 +44,8 @@ export async function addInventoryItem(
 
   try {
     const [result] = await pool.query<ResultSetHeader>(
-      'INSERT INTO inventory_items (name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, finalSalePrice]
+      'INSERT INTO inventory_items (name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, inventory_asset_account_id, cogs_account_id, default_credit_account_id, fee_percentage, sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, inventory_asset_account_id || null, cogs_account_id || null, defaultCreditAccountId || null, feePercentage, finalSalePrice]
     );
 
     if (result.affectedRows > 0) {
@@ -54,7 +53,7 @@ export async function addInventoryItem(
       revalidatePath('/inventory', 'layout');
       return {
         success: true, message: 'Artículo de inventario añadido.',
-        inventoryItem: { ...validatedFields.data, id: newItemId, salePrice: finalSalePrice }, // Devolver el salePrice calculado
+        inventoryItem: { ...validatedFields.data, id: newItemId, salePrice: finalSalePrice },
       };
     } else {
       return { success: false, message: 'No se pudo añadir el artículo.' };
@@ -63,6 +62,13 @@ export async function addInventoryItem(
     console.error('Error al añadir artículo (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El SKU ya existe.', errors: { sku: ['Este SKU ya está registrado.'] } };
+    }
+    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+        let fieldError = 'general';
+        if (error.message.includes('fk_inventory_asset_account')) fieldError = 'inventory_asset_account_id';
+        if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
+        if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
+        return { success: false, message: 'Error: Una de las cuentas contables seleccionadas no existe.', errors: { [fieldError]: ['Cuenta contable inválida.'] } };
     }
     return {
       success: false, message: 'Error del servidor al añadir artículo.',
@@ -90,7 +96,7 @@ export async function updateInventoryItem(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, defaultDebitAccountId, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
+  const { id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, inventory_asset_account_id, cogs_account_id, defaultCreditAccountId, feePercentage, salePrice } = validatedFields.data;
   let finalSalePrice = salePrice;
   if (salePrice === null && feePercentage !== null && unitPrice > 0) {
     finalSalePrice = parseFloat((unitPrice * (1 + feePercentage / 100)).toFixed(2));
@@ -98,14 +104,14 @@ export async function updateInventoryItem(
 
   try {
     const [result] = await pool.query<ResultSetHeader>(
-      'UPDATE inventory_items SET name = ?, sku = ?, category = ?, currentStock = ?, reorderLevel = ?, unitPrice = ?, imageUrl = ?, supplier = ?, default_debit_account_id = ?, default_credit_account_id = ?, fee_percentage = ?, sale_price = ? WHERE id = ?',
-      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, defaultDebitAccountId || null, defaultCreditAccountId || null, feePercentage, finalSalePrice, parseInt(id)]
+      'UPDATE inventory_items SET name = ?, sku = ?, category = ?, currentStock = ?, reorderLevel = ?, unitPrice = ?, imageUrl = ?, supplier = ?, inventory_asset_account_id = ?, cogs_account_id = ?, default_credit_account_id = ?, fee_percentage = ?, sale_price = ? WHERE id = ?',
+      [name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl || null, supplier || null, inventory_asset_account_id || null, cogs_account_id || null, defaultCreditAccountId || null, feePercentage, finalSalePrice, parseInt(id)]
     );
 
     if (result.affectedRows > 0) {
       revalidatePath('/inventory', 'layout');
-      revalidatePath('/sales', 'layout'); // Revalidar ventas por si cambia el precio de los items
-      revalidatePath('/purchases', 'layout'); // Revalidar compras por si cambia el costo
+      revalidatePath('/sales', 'layout'); 
+      revalidatePath('/purchases', 'layout'); 
       return {
         success: true, message: 'Artículo de inventario actualizado.',
         inventoryItem: { ...validatedFields.data, id: id!, salePrice: finalSalePrice },
@@ -117,6 +123,13 @@ export async function updateInventoryItem(
     console.error('Error al actualizar artículo (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El SKU ya existe para otro artículo.', errors: { sku: ['Este SKU ya está registrado.'] } };
+    }
+     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+        let fieldError = 'general';
+        if (error.message.includes('fk_inventory_asset_account')) fieldError = 'inventory_asset_account_id';
+        if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
+        if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
+        return { success: false, message: 'Error: Una de las cuentas contables seleccionadas no existe.', errors: { [fieldError]: ['Cuenta contable inválida.'] } };
     }
     return {
       success: false, message: 'Error del servidor al actualizar.',
@@ -152,7 +165,7 @@ export async function deleteInventoryItem(
   } catch (error: any)
    {
     console.error('Error al eliminar artículo (MySQL):', error);
-     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) { // MySQL error for FK constraint
+     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) { 
       return { success: false, message: 'No se puede eliminar el artículo porque está referenciado en órdenes de compra o venta.'};
     }
     return {
@@ -185,7 +198,7 @@ export async function adjustStock(
     await connection.beginTransaction();
 
     const [itemRows] = await connection.query<RowDataPacket[]>(
-      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items WHERE id = ? FOR UPDATE', // Lock row
+      'SELECT * FROM inventory_items WHERE id = ? FOR UPDATE', 
       [parseInt(itemId)]
     );
 
@@ -194,8 +207,25 @@ export async function adjustStock(
       return { success: false, message: 'Artículo no encontrado.' };
     }
 
-    const currentItem = itemRows[0] as InventoryItemFormInput;
-    const newStock = Number(currentItem.currentStock) + quantityChange;
+    const currentItemData = itemRows[0];
+    const currentItem: InventoryItemFormInput = {
+        id: currentItemData.id.toString(),
+        name: currentItemData.name,
+        sku: currentItemData.sku,
+        category: currentItemData.category,
+        currentStock: Number(currentItemData.currentStock),
+        reorderLevel: Number(currentItemData.reorderLevel),
+        unitPrice: parseFloat(currentItemData.unitPrice),
+        imageUrl: currentItemData.imageUrl,
+        supplier: currentItemData.supplier,
+        inventory_asset_account_id: currentItemData.inventory_asset_account_id?.toString() || null,
+        cogs_account_id: currentItemData.cogs_account_id?.toString() || null,
+        defaultCreditAccountId: currentItemData.default_credit_account_id?.toString() || null,
+        feePercentage: currentItemData.fee_percentage !== null ? parseFloat(currentItemData.fee_percentage) : null,
+        salePrice: currentItemData.sale_price !== null ? parseFloat(currentItemData.sale_price) : null,
+    };
+    
+    const newStock = currentItem.currentStock + quantityChange;
 
     if (newStock < 0) {
       await connection.rollback();
@@ -212,6 +242,7 @@ export async function adjustStock(
 
     // TODO: Registrar el ajuste en una tabla de historial de stock (stock_adjustments_log)
     // INSERT INTO stock_adjustments_log (inventory_item_id, quantity_change, reason, new_stock, user_id, adjustment_date) VALUES (?, ?, ?, ?, ?, CURDATE());
+    // TODO: Generar asiento contable para el ajuste de stock si es necesario (ej. Dr. Gasto por Merma, Cr. Inventario)
 
     await connection.commit();
 
@@ -239,7 +270,7 @@ export async function getInventoryItems(): Promise<(InventoryItemFormInput & {id
   }
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, default_debit_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items ORDER BY name ASC'
+      'SELECT id, name, sku, category, currentStock, reorderLevel, unitPrice, imageUrl, supplier, inventory_asset_account_id, cogs_account_id, default_credit_account_id, fee_percentage, sale_price FROM inventory_items ORDER BY name ASC'
     );
     return rows.map(row => ({
         id: row.id.toString(),
@@ -251,7 +282,8 @@ export async function getInventoryItems(): Promise<(InventoryItemFormInput & {id
         unitPrice: parseFloat(row.unitPrice),
         imageUrl: row.imageUrl,
         supplier: row.supplier,
-        defaultDebitAccountId: row.default_debit_account_id?.toString() || null,
+        inventory_asset_account_id: row.inventory_asset_account_id?.toString() || null,
+        cogs_account_id: row.cogs_account_id?.toString() || null,
         defaultCreditAccountId: row.default_credit_account_id?.toString() || null,
         feePercentage: row.fee_percentage !== null ? parseFloat(row.fee_percentage) : null,
         salePrice: row.sale_price !== null ? parseFloat(row.sale_price) : null,

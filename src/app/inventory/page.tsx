@@ -28,7 +28,8 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
     resolver: zodResolver(InventoryItemSchema),
     defaultValues: item || {
       name: '', sku: '', category: '', currentStock: 0, reorderLevel: 0, unitPrice: 0, imageUrl: '', supplier: '',
-      defaultDebitAccountId: null, defaultCreditAccountId: null, feePercentage: null, salePrice: null,
+      inventory_asset_account_id: null, cogs_account_id: null, defaultCreditAccountId: null, 
+      feePercentage: null, salePrice: null,
     },
   });
 
@@ -37,7 +38,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
   const salePrice = watch("salePrice");
 
   useEffect(() => {
-    if (feePercentage !== null && feePercentage !== undefined && unitPrice > 0 && salePrice === null) { // Solo calcula si salePrice no está fijado por el usuario
+    if (feePercentage !== null && feePercentage !== undefined && unitPrice > 0 && salePrice === null) {
       const calculatedSalePrice = unitPrice * (1 + feePercentage / 100);
       setValue("salePrice", parseFloat(calculatedSalePrice.toFixed(2)), { shouldValidate: true });
     }
@@ -71,7 +72,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
                 } else if (fee === null && salePrice !== null) {
                     // Si se borra el fee, pero hay un salePrice, no hacer nada con salePrice
                 } else {
-                    setValue("salePrice", null); // Si no hay fee y no hay precio de venta, borrarlo
+                    setValue("salePrice", null); 
                 }
               }}
             />
@@ -84,19 +85,29 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <Label htmlFor="defaultDebitAccountId">Cta. Débito (Inventario/COGS)</Label>
-          <Controller name="defaultDebitAccountId" control={control} render={({ field }) => (
+          <Label htmlFor="inventory_asset_account_id">Cta. Activo (Inventario)</Label>
+          <Controller name="inventory_asset_account_id" control={control} render={({ field }) => (
             <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
-              <SelectContent>{accounts.filter(a => a.type === 'Activo' || a.type === 'Gasto').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{accounts.filter(a => a.type === 'Activo').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
             </Select>
           )} />
-          {errors.defaultDebitAccountId && <p className="text-sm text-destructive mt-1">{errors.defaultDebitAccountId.message}</p>}
+          {errors.inventory_asset_account_id && <p className="text-sm text-destructive mt-1">{errors.inventory_asset_account_id.message}</p>}
         </div>
         <div>
-          <Label htmlFor="defaultCreditAccountId">Cta. Crédito (Ingresos)</Label>
+          <Label htmlFor="cogs_account_id">Cta. Gasto (COGS)</Label>
+           <Controller name="cogs_account_id" control={control} render={({ field }) => (
+            <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+              <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
+              <SelectContent>{accounts.filter(a => a.type === 'Gasto').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
+            </Select>
+          )} />
+          {errors.cogs_account_id && <p className="text-sm text-destructive mt-1">{errors.cogs_account_id.message}</p>}
+        </div>
+        <div>
+          <Label htmlFor="defaultCreditAccountId">Cta. Ingreso (Venta)</Label>
            <Controller name="defaultCreditAccountId" control={control} render={({ field }) => (
             <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
@@ -247,7 +258,7 @@ export default function InventoryPage() {
             </div>
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                 <DialogTrigger asChild><Button size="lg" onClick={() => setIsAddDialogOpen(true)}><PlusCircle className="mr-2 h-5 w-5" /> Añadir Artículo</Button></DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
+                <DialogContent className="sm:max-w-2xl"> {/* Ampliado el ancho */}
                     <DialogHeader><DialogTitle>Añadir Nuevo Artículo</DialogTitle><DialogDescription>Detalles del nuevo producto.</DialogDescription></DialogHeader>
                     <InventoryItemForm accounts={accounts} onFormSubmit={handleAddSubmit} closeDialog={() => setIsAddDialogOpen(false)} />
                 </DialogContent>
@@ -318,7 +329,8 @@ export default function InventoryPage() {
       </Card>
 
       <Dialog open={isEditDialogOpen} onOpenChange={(isOpen) => { setIsEditDialogOpen(isOpen); if (!isOpen) setEditingItem(undefined);}}>
-        <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Editar Artículo</DialogTitle><DialogDescription>Actualiza detalles.</DialogDescription></DialogHeader>
+        <DialogContent className="sm:max-w-2xl"> {/* Ampliado el ancho */}
+            <DialogHeader><DialogTitle>Editar Artículo</DialogTitle><DialogDescription>Actualiza detalles.</DialogDescription></DialogHeader>
           {editingItem && <InventoryItemForm item={editingItem} accounts={accounts} onFormSubmit={handleEditSubmit} closeDialog={() => {setIsEditDialogOpen(false); setEditingItem(undefined);}} />}
         </DialogContent>
       </Dialog>
