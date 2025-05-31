@@ -20,6 +20,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ExpenseSchema } from "@/app/schemas/expenses.schemas";
 import { type ExpenseFormInput, addExpense, updateExpense, deleteExpense, getExpenses } from "@/app/actions/expenses.actions";
 import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"; // Importación añadida
+
 
 const getStatusBadge = (status: ExpenseFormInput["status"]) => {
   switch (status) {
@@ -37,7 +39,7 @@ const getStatusBadge = (status: ExpenseFormInput["status"]) => {
 };
 
 function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: ExpenseFormInput & {id: string}, onFormSubmit: (data: ExpenseFormInput) => Promise<void>, closeDialog: () => void }) {
-  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<ExpenseFormInput>({
+  const { register, handleSubmit, control, watch, formState: { errors, isSubmitting } } = useForm<ExpenseFormInput>({
     resolver: zodResolver(ExpenseSchema),
     defaultValues: expense || {
       date: new Date().toISOString().split('T')[0],
@@ -45,13 +47,14 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
       description: '',
       amount: 0,
       vendor: '',
-      status: 'Borrador', // Default to Borrador
+      status: 'Borrador', 
       receiptUrl: '',
     },
   });
 
   const currentStatus = expense?.status;
   const isPaidOrCancelled = currentStatus === 'Pagado' || currentStatus === 'Cancelada';
+  const isConfirmed = currentStatus === 'Confirmada';
 
   return (
     <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
@@ -91,15 +94,20 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
           name="status"
           control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isPaidOrCancelled || currentStatus === 'Cancelada' || (currentStatus === 'Confirmada' && field.value !== 'Cancelada')}>
+            <Select 
+              onValueChange={field.onChange} 
+              value={field.value} 
+              disabled={isPaidOrCancelled || (isConfirmed && field.value !== 'Cancelada')}
+            >
               <SelectTrigger id="status">
                 <SelectValue placeholder="Seleccionar estado..." />
               </SelectTrigger>
               <SelectContent>
-                {(field.value === 'Borrador' || !expense) && <SelectItem value="Borrador">Borrador</SelectItem>}
-                {(field.value === 'Borrador' || field.value === 'Confirmada') && !isPaidOrCancelled && <SelectItem value="Confirmada">Confirmada</SelectItem>}
-                {!isPaidOrCancelled && <SelectItem value="Cancelada">Cancelada</SelectItem>}
-                {isPaidOrCancelled && <SelectItem value={currentStatus!} disabled>{currentStatus}</SelectItem>}
+                { (currentStatus === 'Borrador' || !expense) && <SelectItem value="Borrador">Borrador</SelectItem> }
+                { (currentStatus === 'Borrador' || currentStatus === 'Confirmada') && !isPaidOrCancelled && <SelectItem value="Confirmada">Confirmada</SelectItem> }
+                { !isPaidOrCancelled && <SelectItem value="Cancelada">Cancelada</SelectItem> }
+                { isPaidOrCancelled && <SelectItem value={currentStatus!} disabled>{currentStatus}</SelectItem> }
+                 { /* La opción Pagado no debe ser seleccionable manualmente aquí */ }
               </SelectContent>
             </Select>
           )}
@@ -108,7 +116,10 @@ function ExpenseForm({ expense, onFormSubmit, closeDialog }: { expense?: Expense
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={closeDialog} disabled={isSubmitting}>Cancelar</Button>
-        <Button type="submit" disabled={isSubmitting || isPaidOrCancelled || (currentStatus === 'Confirmada' && watch('status') !== 'Cancelada')}>
+        <Button 
+          type="submit" 
+          disabled={isSubmitting || isPaidOrCancelled || (isConfirmed && watch('status') !== 'Cancelada' && watch('status') !== 'Confirmada')}
+        >
           {isSubmitting ? (expense ? "Guardando..." : "Añadiendo...") : (expense ? "Guardar Cambios" : "Añadir Gasto")}
         </Button>
       </DialogFooter>
@@ -179,8 +190,8 @@ export default function ExpensesPage() {
   const totalExpensesThisMonth = expenses
     .filter(ex => ex.status === 'Pagado' && new Date(ex.date).getMonth() === new Date().getMonth() && new Date(ex.date).getFullYear() === new Date().getFullYear())
     .reduce((sum, ex) => sum + ex.amount, 0);
-  const pendingConfirmationCount = expenses.filter(ex => ex.status === "Borrador").length; // Asumiendo que 'Borrador' es el estado inicial antes de 'Confirmada'
-  const pendingConfirmationAmount = expenses.filter(ex => ex.status === "Borrador").reduce((sum, ex) => sum + ex.amount, 0);
+  const pendingConfirmationCount = expenses.filter(ex => ex.status === "Confirmada" && ex.status !== "Pagado").length; 
+  const pendingConfirmationAmount = expenses.filter(ex => ex.status === "Confirmada" && ex.status !== "Pagado").reduce((sum, ex) => sum + ex.amount, 0);
 
 
   const filteredExpenses = expenses.filter(ex => activeTab === "all" || ex.status === activeTab);
@@ -229,7 +240,7 @@ export default function ExpensesPage() {
             </Card>
             <Card className="border-border">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Pendiente de Confirmación</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Pendiente de Pago (Confirmados)</CardTitle>
                 <Hourglass className="h-5 w-5 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -364,3 +375,4 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
