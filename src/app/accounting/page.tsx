@@ -34,7 +34,7 @@ import {
   getCompanyAccountingSettings, updateCompanyAccountingSettings, closeFiscalYearProcess
 } from "@/app/actions/accounting.actions";
 import { useToast } from "@/hooks/use-toast";
-import type { SessionPayload } from '@/lib/session'; // Para obtener userID para el cierre
+import type { SessionPayload } from '@/lib/session';
 import { Badge } from "@/components/ui/badge";
 
 
@@ -49,16 +49,16 @@ interface BalancesSummary {
   netProfit: number;
 }
 
-const NULL_PARENT_ACC_VALUE = "NULL_PARENT_ACC_VALUE";
-const NULL_ACTIVE_FY_VALUE = "NULL_ACTIVE_FY_VALUE";
-const NULL_RETAINED_ACC_VALUE = "NULL_RETAINED_ACC_VALUE";
+const NULL_PARENT_ACC_VALUE = "##NULL_PARENT_ACCOUNT_PLACEHOLDER##";
+const NULL_ACTIVE_FY_VALUE = "##NULL_ACTIVE_FY_PLACEHOLDER##";
+const NULL_RETAINED_ACC_VALUE = "##NULL_RETAINED_ACC_PLACEHOLDER##";
 
 
 function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: { account?: AccountWithDetails, existingAccounts: AccountWithDetails[], onFormSubmit: (data: AccountFormInput) => Promise<void>, closeDialog: () => void }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<AccountFormInput>({
     resolver: zodResolver(AccountSchema),
-    defaultValues: account 
-      ? { ...account, parentAccountId: account.parentAccountId ?? null } 
+    defaultValues: account
+      ? { ...account, parentAccountId: account.parentAccountId ?? null }
       : { code: '', name: '', type: undefined, balance: 0, parentAccountId: null },
   });
 
@@ -68,11 +68,15 @@ function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: {
       <div><Label htmlFor="name">Nombre</Label><Input id="name" {...register("name")} />{errors.name && <p className="text-sm text-destructive mt-1">{errors.name.message}</p>}</div>
       <div>
         <Label htmlFor="type">Tipo</Label>
-        <Controller 
-          name="type" 
-          control={control} 
+        <Controller
+          name="type"
+          control={control}
           render={({ field }) => (
-            <Select onValueChange={field.onChange} value={field.value || ""} >
+            <Select
+              onValueChange={field.onChange}
+              value={field.value} // Pass undefined to show placeholder if field.value is undefined
+              defaultValue={field.value} // Ensures initial value is set if present
+            >
               <SelectTrigger><SelectValue placeholder="Seleccionar tipo..." /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Activo">Activo</SelectItem>
@@ -82,32 +86,49 @@ function AccountForm({ account, existingAccounts, onFormSubmit, closeDialog }: {
                 <SelectItem value="Gasto">Gasto</SelectItem>
               </SelectContent>
             </Select>
-          )} 
+          )}
         />
         {errors.type && <p className="text-sm text-destructive mt-1">{errors.type.message}</p>}
       </div>
       <div>
         <Label htmlFor="parentAccountId">Cta. Padre (Opcional)</Label>
-        <Controller 
-          name="parentAccountId" 
-          control={control} 
+        <Controller
+          name="parentAccountId"
+          control={control}
           render={({ field }) => {
-            const selectValue = field.value === null || field.value === undefined ? NULL_PARENT_ACC_VALUE : field.value;
+            const currentSelectValue = field.value === null || field.value === undefined
+              ? NULL_PARENT_ACC_VALUE
+              : String(field.value);
+
             return (
-              <Select 
-                onValueChange={(value) => field.onChange(value === NULL_PARENT_ACC_VALUE ? null : value)} 
-                value={selectValue}
+              <Select
+                onValueChange={(value) => {
+                  field.onChange(value === NULL_PARENT_ACC_VALUE ? null : value);
+                }}
+                value={currentSelectValue}
               >
                 <SelectTrigger><SelectValue placeholder="Seleccionar cta. padre..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NULL_PARENT_ACC_VALUE}>Ninguna</SelectItem>
-                  {existingAccounts.filter(acc => acc.id !== account?.id).map(acc => 
-                    <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>
+                  {existingAccounts
+                    .filter(acc => acc.id !== account?.id)
+                    .map(acc => {
+                      const itemValue = String(acc.id);
+                      if (itemValue === "") {
+                        console.error("AccountForm: acc.id resulted in an empty string for account:", acc);
+                        return null; 
+                      }
+                      return (
+                        <SelectItem key={itemValue} value={itemValue}>
+                          {acc.code} - {acc.name}
+                        </SelectItem>
+                      );
+                    }
                   )}
                 </SelectContent>
               </Select>
             );
-          }} 
+          }}
         />
         {errors.parentAccountId && <p className="text-sm text-destructive mt-1">{errors.parentAccountId.message}</p>}
       </div>
@@ -151,15 +172,17 @@ function CompanyAccountingSettingsForm({ settings, fiscalYears, accounts, onForm
         <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-4">
             <div>
                 <Label htmlFor="currentFiscalYearId">Año Fiscal Activo</Label>
-                <Controller 
-                  name="currentFiscalYearId" 
-                  control={control} 
+                <Controller
+                  name="currentFiscalYearId"
+                  control={control}
                   render={({ field }) => {
-                    const selectValue = field.value === null || field.value === undefined ? NULL_ACTIVE_FY_VALUE : String(field.value);
+                    const currentSelectValue = field.value === null || field.value === undefined
+                      ? NULL_ACTIVE_FY_VALUE
+                      : String(field.value);
                     return (
                       <Select
                           onValueChange={(value) => field.onChange(value === NULL_ACTIVE_FY_VALUE ? null : (value ? Number(value) : null))}
-                          value={selectValue}
+                          value={currentSelectValue}
                       >
                           <SelectTrigger><SelectValue placeholder="Seleccionar año fiscal activo..." /></SelectTrigger>
                           <SelectContent>
@@ -168,21 +191,23 @@ function CompanyAccountingSettingsForm({ settings, fiscalYears, accounts, onForm
                           </SelectContent>
                       </Select>
                     );
-                  }} 
+                  }}
                 />
                 {errors.currentFiscalYearId && <p className="text-sm text-destructive mt-1">{errors.currentFiscalYearId.message}</p>}
             </div>
             <div>
                 <Label htmlFor="retainedEarningsAccountId">Cuenta de Resultados Acumulados (Patrimonio)</Label>
-                <Controller 
-                  name="retainedEarningsAccountId" 
-                  control={control} 
+                <Controller
+                  name="retainedEarningsAccountId"
+                  control={control}
                   render={({ field }) => {
-                    const selectValue = field.value === null || field.value === undefined ? NULL_RETAINED_ACC_VALUE : String(field.value);
+                    const currentSelectValue = field.value === null || field.value === undefined
+                      ? NULL_RETAINED_ACC_VALUE
+                      : String(field.value);
                     return (
-                      <Select 
+                      <Select
                         onValueChange={(value) => field.onChange(value === NULL_RETAINED_ACC_VALUE ? null : (value ? Number(value) : null))}
-                        value={selectValue}
+                        value={currentSelectValue}
                       >
                           <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
                           <SelectContent>
@@ -253,7 +278,7 @@ export default function AccountingPage() {
             getAccounts(),
             getJournalEntries(fyIdForFetch),
             getAccountBalancesSummary(fyIdForFetch),
-            getIncomeVsExpenseChartData(6, fyIdForFetch), // Fetch for the active year for the chart
+            getIncomeVsExpenseChartData(6, fyIdForFetch),
             getFiscalYears(),
         ]);
         setChartOfAccounts(accountsData);
@@ -262,10 +287,8 @@ export default function AccountingPage() {
         setIncomeExpenseChartData(chartData);
         setFiscalYears(fiscalYearsData);
 
-        // Update activeFiscalYearForReports based on fetched settings
         const activeFY = fiscalYearsData.find(fy => fy.id === currentSettings?.currentFiscalYearId);
         setActiveFiscalYearForReportsState(activeFY || null);
-
 
     } catch (error) {
         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los datos contables." });
@@ -335,17 +358,17 @@ export default function AccountingPage() {
   const handleCompanySettingsSubmit = async (data: CompanyAccountingSettingsFormInput) => {
     const response = await updateCompanyAccountingSettings(data);
     toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive", errors: response.errors });
-    if (response.success) { 
-        setCompanyAccSettings(data); // Actualizar estado local inmediatamente
-        refreshAllAccountingData(); // Recargar todo para asegurar consistencia
-        setIsCompanySettingsDialogOpen(false); 
+    if (response.success) {
+        setCompanyAccSettings(data);
+        refreshAllAccountingData();
+        setIsCompanySettingsDialogOpen(false);
     }
   };
 
   const handleCloseFiscalYear = async () => {
       const activeFY = fiscalYears.find(fy => fy.id === companyAccSettings?.currentFiscalYearId && !fy.isClosed);
       if (!activeFY) {
-          toast({ variant: "destructive", title: "Error", description: "No hay un año fiscal activo abierto para cerrar o no se ha seleccionado cuenta de resultados acumulados." });
+          toast({ variant: "destructive", title: "Error", description: "No hay un año fiscal activo abierto para cerrar." });
           return;
       }
       if (!companyAccSettings?.retainedEarningsAccountId) {
@@ -449,9 +472,7 @@ export default function AccountingPage() {
                             onValueChange={(value) => {
                                 const selectedId = value ? parseInt(value) : null;
                                 const selectedFY = fiscalYears.find(fy => fy.id === selectedId) || null;
-                                setActiveFiscalYearForReportsState(selectedFY); 
-                                // Llama a refresh solo si es necesario para actualizar datos específicos del informe
-                                // refreshAllAccountingData(); // Podría ser demasiado, considerar algo más específico
+                                setActiveFiscalYearForReportsState(selectedFY);
                             }}
                             >
                             <SelectTrigger className="w-[280px]">
@@ -617,3 +638,4 @@ export default function AccountingPage() {
   );
 }
 
+    
