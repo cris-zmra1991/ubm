@@ -32,7 +32,7 @@ async function generatePoNumber(connection: Connection): Promise<string> {
   const now = new Date();
   const year = now.getFullYear();
   const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  
+
   const [rows] = await connection.query<RowDataPacket[]>(
     "SELECT COUNT(*) as count FROM purchase_orders WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?",
     [year, month]
@@ -92,9 +92,10 @@ export async function addPurchaseOrder(
         [purchaseOrderId, parseInt(item.inventoryItemId), item.quantity, item.unitPrice, totalItemPrice]
       );
     }
-    
+
     if (status === 'Confirmada') {
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Proveedores (Pasivo)
+      // TODO: Reemplazar "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE" con el código real de la cuenta de Cuentas por Pagar (Proveedores) de tu plan de cuentas.
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE"; // Ejemplo: "2.1.01" o "21001"
 
       for (const item of items) {
         await connection.query(
@@ -103,7 +104,7 @@ export async function addPurchaseOrder(
         );
 
         const [invItemRows] = await connection.query<RowDataPacket[]>(
-          'SELECT name, inventory_asset_account_id FROM inventory_items WHERE id = ?', 
+          'SELECT name, inventory_asset_account_id FROM inventory_items WHERE id = ?',
           [item.inventoryItemId]
         );
         if (invItemRows.length === 0) {
@@ -126,7 +127,7 @@ export async function addPurchaseOrder(
         const journalEntryDesc = `Compra OC ${poNumber}: ${description || invItemRows[0].name}`;
         const entryResult = await addJournalEntry({
           date,
-          entryNumber: '', 
+          entryNumber: '',
           description: journalEntryDesc,
           debitAccountCode: inventoryAccountCode, // Dr: Inventario (Activo)
           creditAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, // Cr: Cuentas por Pagar (Pasivo)
@@ -147,7 +148,7 @@ export async function addPurchaseOrder(
         revalidatePath('/accounting', 'layout');
         revalidatePath('/payments', 'layout');
     }
-    
+
     return {
       success: true,
       message: 'Orden de Compra añadida exitosamente.',
@@ -158,7 +159,8 @@ export async function addPurchaseOrder(
     if (connection) await connection.rollback();
     console.error('Error al añadir Orden de Compra (MySQL):', error);
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        return { success: false, message: 'Error: El proveedor o un artículo no existe.', errors: { vendorId: ['Proveedor inválido o artículo no encontrado.']}};
+        // Este error podría ser por vendorId o por inventory_item_id si la FK falla
+        return { success: false, message: 'Error: El proveedor o un artículo referenciado no existe.', errors: { vendorId: ['Proveedor inválido o artículo no encontrado.']}};
     }
     return {
       success: false,
@@ -180,7 +182,7 @@ export async function updatePurchaseOrder(
     return { success: false, message: 'El estado "Pagado" solo se puede establecer desde el módulo de Pagos.' };
   }
 
-  const validatedFields = PurchaseOrderSchema.safeParse(data); 
+  const validatedFields = PurchaseOrderSchema.safeParse(data);
 
   if (!validatedFields.success) {
     return {
@@ -194,7 +196,7 @@ export async function updatePurchaseOrder(
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
-  const { id } = data; 
+  const { id } = data;
   const { vendorId, date, status, description, items } = validatedFields.data;
   let connection: Connection | null = null;
 
@@ -240,32 +242,30 @@ export async function updatePurchaseOrder(
           );
         }
     } else if (oldStatus === 'Borrador' && status === 'Confirmada') {
-      // Si pasa de Borrador a Confirmada, el totalAmount debe ser el de los items actuales (que podrían haber sido editados en el form)
       newTotalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-      // Podríamos re-insertar los items aquí también si quisiéramos asegurar que los items del form son los que se usan.
-      // Por ahora, asumimos que el cliente envió los items correctos para la confirmación.
     }
-    
+
     await connection.query<ResultSetHeader>(
       'UPDATE purchase_orders SET vendor_id = ?, date = ?, description = ?, totalAmount = ?, status = ? WHERE id = ?',
       [parseInt(vendorId), date, description, newTotalAmount, status, parseInt(id)]
     );
-    
+
     const becameConfirmed = status === 'Confirmada' && oldStatus === 'Borrador';
-    
+
     if (becameConfirmed) {
       const [orderItemsRowsForStockAndAccounting] = await connection.query<RowDataPacket[]>(
         'SELECT poi.inventory_item_id, poi.quantity, poi.unit_price, inv.name as itemName, inv.inventory_asset_account_id FROM purchase_order_items poi JOIN inventory_items inv ON poi.inventory_item_id = inv.id WHERE poi.purchase_order_id = ?', [id]
       );
-      
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; 
+
+      // TODO: Reemplazar "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE" con el código real de la cuenta de Cuentas por Pagar (Proveedores) de tu plan de cuentas.
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE"; // Ejemplo: "2.1.01" o "21001"
 
       for (const item of orderItemsRowsForStockAndAccounting) {
          await connection.query(
             'UPDATE inventory_items SET currentStock = currentStock + ? WHERE id = ?',
             [item.quantity, item.inventory_item_id]
           );
-        
+
          if (!item.inventory_asset_account_id) {
             await connection.rollback();
             return { success: false, message: `Artículo '${item.itemName}' (ID ${item.inventory_item_id}) no tiene cuenta de activo de inventario configurada para el asiento.` };
@@ -290,7 +290,7 @@ export async function updatePurchaseOrder(
       }
     }
     // TODO: Implementar lógica para revertir stock y asientos si el estado cambia de 'Confirmada' a 'Cancelada'.
-    
+
     await connection.commit();
 
     revalidatePath('/purchases', 'layout');
@@ -299,7 +299,7 @@ export async function updatePurchaseOrder(
         revalidatePath('/accounting', 'layout');
         revalidatePath('/payments', 'layout');
     }
-    
+
     return {
       success: true,
       message: 'Orden de Compra actualizada exitosamente.',
@@ -310,7 +310,7 @@ export async function updatePurchaseOrder(
     if (connection) await connection.rollback();
     console.error('Error al actualizar Orden de Compra (MySQL):', error);
      if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        return { success: false, message: 'Error: El proveedor o un artículo no existe.', errors: { vendorId: ['Proveedor inválido o artículo no encontrado.']}};
+        return { success: false, message: 'Error: El proveedor o un artículo referenciado no existe.', errors: { vendorId: ['Proveedor inválido o artículo no encontrado.']}};
     }
     return {
       success: false,
@@ -503,3 +503,5 @@ export async function updatePurchaseOrderStatus(id: string, status: PurchaseOrde
     }
   }
 }
+
+    
