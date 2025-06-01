@@ -28,7 +28,9 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
     resolver: zodResolver(InventoryItemSchema),
     defaultValues: item || {
       name: '', sku: '', category: '', currentStock: 0, reorderLevel: 0, unitPrice: 0, imageUrl: '', supplier: '',
-      inventory_asset_account_id: null, cogs_account_id: null, defaultCreditAccountId: null, 
+      inventory_asset_account_id: null,
+      cogs_account_id: null,
+      defaultCreditAccountId: null,
       feePercentage: null, salePrice: null,
     },
   });
@@ -72,7 +74,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
                 } else if (fee === null && salePrice !== null) {
                     // Si se borra el fee, pero hay un salePrice, no hacer nada con salePrice
                 } else {
-                    setValue("salePrice", null); 
+                    setValue("salePrice", null);
                 }
               }}
             />
@@ -89,7 +91,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
         <div>
           <Label htmlFor="inventory_asset_account_id">Cta. Activo (Inventario)</Label>
           <Controller name="inventory_asset_account_id" control={control} render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+            <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
               <SelectContent>{accounts.filter(a => a.type === 'Activo').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
             </Select>
@@ -99,7 +101,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
         <div>
           <Label htmlFor="cogs_account_id">Cta. Gasto (COGS)</Label>
            <Controller name="cogs_account_id" control={control} render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+            <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
               <SelectContent>{accounts.filter(a => a.type === 'Gasto').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
             </Select>
@@ -109,7 +111,7 @@ function InventoryItemForm({ item, accounts, onFormSubmit, closeDialog }: { item
         <div>
           <Label htmlFor="defaultCreditAccountId">Cta. Ingreso (Venta)</Label>
            <Controller name="defaultCreditAccountId" control={control} render={({ field }) => (
-            <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+            <Select onValueChange={field.onChange} value={field.value || ""} defaultValue={field.value || ""}>
               <SelectTrigger><SelectValue placeholder="Seleccionar cuenta..." /></SelectTrigger>
               <SelectContent>{accounts.filter(a => a.type === 'Ingreso').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent>
             </Select>
@@ -342,3 +344,5 @@ export default function InventoryPage() {
     </div>
   );
 }
+
+    
