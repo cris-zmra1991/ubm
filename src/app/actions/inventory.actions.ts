@@ -32,6 +32,7 @@ export async function addInventoryItem(
   }
 
   if (!pool) {
+    console.error('Error: Connection pool not available in addInventoryItem.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
@@ -56,23 +57,25 @@ export async function addInventoryItem(
         inventoryItem: { ...validatedFields.data, id: newItemId, salePrice: finalSalePrice },
       };
     } else {
-      return { success: false, message: 'No se pudo añadir el artículo.' };
+      // Esto no debería ocurrir si la inserción no lanza un error pero no afecta filas.
+      return { success: false, message: 'No se pudo añadir el artículo de inventario (sin filas afectadas).' };
     }
   } catch (error: any) {
-    console.error('Error al añadir artículo (MySQL):', error);
+    console.error('Error detallado al añadir artículo de inventario (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El SKU ya existe.', errors: { sku: ['Este SKU ya está registrado.'] } };
     }
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
         let fieldError = 'general';
         if (error.message.includes('fk_inventory_asset_account')) fieldError = 'inventory_asset_account_id';
-        if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
-        if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
+        else if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
+        else if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
         return { success: false, message: 'Error: Una de las cuentas contables seleccionadas no existe.', errors: { [fieldError]: ['Cuenta contable inválida.'] } };
     }
+    // Fallback para otros errores
     return {
-      success: false, message: 'Error del servidor al añadir artículo.',
-      errors: { general: ['No se pudo añadir el artículo.'] },
+      success: false, message: `Error del servidor al añadir artículo: ${error.message || 'Error desconocido'}`,
+      errors: { general: ['No se pudo añadir el artículo. Por favor, inténtelo más tarde.'] },
     };
   }
 }
@@ -93,6 +96,7 @@ export async function updateInventoryItem(
   }
 
   if (!pool) {
+    console.error('Error: Connection pool not available in updateInventoryItem.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
@@ -120,19 +124,19 @@ export async function updateInventoryItem(
       return { success: false, message: 'Artículo no encontrado o sin cambios.' };
     }
   } catch (error: any) {
-    console.error('Error al actualizar artículo (MySQL):', error);
+    console.error('Error detallado al actualizar artículo (MySQL):', error);
     if (error.code === 'ER_DUP_ENTRY' || error.errno === 1062) {
         return { success: false, message: 'Error: El SKU ya existe para otro artículo.', errors: { sku: ['Este SKU ya está registrado.'] } };
     }
      if (error.code === 'ER_NO_REFERENCED_ROW_2') {
         let fieldError = 'general';
         if (error.message.includes('fk_inventory_asset_account')) fieldError = 'inventory_asset_account_id';
-        if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
-        if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
+        else if (error.message.includes('fk_inventory_cogs_account')) fieldError = 'cogs_account_id';
+        else if (error.message.includes('fk_inventory_credit_account')) fieldError = 'defaultCreditAccountId';
         return { success: false, message: 'Error: Una de las cuentas contables seleccionadas no existe.', errors: { [fieldError]: ['Cuenta contable inválida.'] } };
     }
     return {
-      success: false, message: 'Error del servidor al actualizar.',
+      success: false, message: `Error del servidor al actualizar: ${error.message || 'Error desconocido'}`,
       errors: { general: ['No se pudo actualizar.'] },
     };
   }
@@ -145,6 +149,7 @@ export async function deleteInventoryItem(
     return { success: false, message: 'ID de artículo requerido.' };
   }
   if (!pool) {
+    console.error('Error: Connection pool not available in deleteInventoryItem.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
@@ -164,12 +169,12 @@ export async function deleteInventoryItem(
     }
   } catch (error: any)
    {
-    console.error('Error al eliminar artículo (MySQL):', error);
-     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451) { 
+    console.error('Error detallado al eliminar artículo (MySQL):', error);
+     if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.errno === 1451 || (error.sqlState && error.sqlState.startsWith('23'))) { 
       return { success: false, message: 'No se puede eliminar el artículo porque está referenciado en órdenes de compra o venta.'};
     }
     return {
-      success: false, message: 'Error del servidor al eliminar.',
+      success: false, message: `Error del servidor al eliminar: ${error.message || 'Error desconocido'}`,
       errors: { general: ['No se pudo eliminar.'] },
     };
   }
@@ -187,6 +192,7 @@ export async function adjustStock(
   }
 
   if (!pool) {
+    console.error('Error: Connection pool not available in adjustStock.');
     return { success: false, message: 'Error del servidor: DB no disponible.' };
   }
 
@@ -240,10 +246,6 @@ export async function adjustStock(
       [newStock, parseInt(itemId)]
     );
 
-    // TODO: Registrar el ajuste en una tabla de historial de stock (stock_adjustments_log)
-    // INSERT INTO stock_adjustments_log (inventory_item_id, quantity_change, reason, new_stock, user_id, adjustment_date) VALUES (?, ?, ?, ?, ?, CURDATE());
-    // TODO: Generar asiento contable para el ajuste de stock si es necesario (ej. Dr. Gasto por Merma, Cr. Inventario)
-
     await connection.commit();
 
     revalidatePath('/inventory', 'layout');
@@ -251,11 +253,11 @@ export async function adjustStock(
       success: true, message: 'Stock ajustado exitosamente.',
       inventoryItem: { ...currentItem, id: currentItem.id!.toString(), currentStock: newStock },
     };
-  } catch (error) {
+  } catch (error: any) {
     if (connection) await connection.rollback();
-    console.error('Error al ajustar stock (MySQL):', error);
+    console.error('Error detallado al ajustar stock (MySQL):', error);
     return {
-      success: false, message: 'Error del servidor al ajustar stock.',
+      success: false, message: `Error del servidor al ajustar stock: ${error.message || 'Error desconocido'}`,
       errors: { general: ['No se pudo ajustar el stock.'] },
     };
   } finally {
@@ -266,6 +268,7 @@ export async function adjustStock(
 
 export async function getInventoryItems(): Promise<(InventoryItemFormInput & {id: string})[]> {
   if (!pool) {
+    console.error('Error: Connection pool not available in getInventoryItems.');
     return [];
   }
   try {
@@ -293,3 +296,5 @@ export async function getInventoryItems(): Promise<(InventoryItemFormInput & {id
     return [];
   }
 }
+
+    
