@@ -94,8 +94,25 @@ export async function addPurchaseOrder(
     }
 
     if (status === 'Confirmada') {
-      // TODO: Reemplazar "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE" con el código real de la cuenta de Cuentas por Pagar (Proveedores) de tu plan de cuentas.
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE"; // Ejemplo: "2.1.01" o "21001"
+      // TODO: CONFIGURACIÓN GLOBAL: Considera mover este código a una configuración global de la empresa en lugar de hardcodearlo.
+      // Este es el código de la cuenta de "Cuentas por Pagar a Proveedores" (Pasivo) que se usará para el crédito del asiento de compra.
+      // ASEGÚRATE DE QUE ESTE CÓDIGO EXISTA EN TU PLAN DE CUENTAS y sea de tipo 'Pasivo'.
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo, reemplázalo por tu código real.
+
+      const [payableAccountRows] = await connection.query<RowDataPacket[]>(
+        'SELECT id, code, type FROM chart_of_accounts WHERE code = ?',
+        [DEFAULT_ACCOUNTS_PAYABLE_CODE]
+      );
+
+      if (payableAccountRows.length === 0) {
+        await connection.rollback();
+        return { success: false, message: `Error crítico: La cuenta por pagar por defecto con código '${DEFAULT_ACCOUNTS_PAYABLE_CODE}' no existe en el plan de cuentas. Por favor, configúrala o verifica el código en purchases.actions.ts.` };
+      }
+      if (payableAccountRows[0].type !== 'Pasivo') {
+        await connection.rollback();
+        return { success: false, message: `Error crítico: La cuenta por pagar por defecto '${DEFAULT_ACCOUNTS_PAYABLE_CODE}' no es de tipo 'Pasivo'. Verifica su configuración.` };
+      }
+
 
       for (const item of items) {
         await connection.query(
@@ -129,12 +146,14 @@ export async function addPurchaseOrder(
           date,
           entryNumber: '',
           description: journalEntryDesc,
-          debitAccountCode: inventoryAccountCode, // Dr: Inventario (Activo)
-          creditAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE, // Cr: Cuentas por Pagar (Pasivo)
+          debitAccountCode: inventoryAccountCode,
+          creditAccountCode: DEFAULT_ACCOUNTS_PAYABLE_CODE,
           amount: item.quantity * item.unitPrice,
         }, connection);
+
         if (!entryResult.success) {
             await connection.rollback();
+            // El mensaje de error de addJournalEntry ya debería ser lo suficientemente descriptivo.
             return { success: false, message: `Error al generar asiento contable para OC ${poNumber}: ${entryResult.message}`, errors: entryResult.errors };
         }
       }
@@ -159,7 +178,6 @@ export async function addPurchaseOrder(
     if (connection) await connection.rollback();
     console.error('Error al añadir Orden de Compra (MySQL):', error);
     if (error.code === 'ER_NO_REFERENCED_ROW_2') {
-        // Este error podría ser por vendorId o por inventory_item_id si la FK falla
         return { success: false, message: 'Error: El proveedor o un artículo referenciado no existe.', errors: { vendorId: ['Proveedor inválido o artículo no encontrado.']}};
     }
     return {
@@ -178,7 +196,7 @@ export async function updatePurchaseOrder(
   if (!data.id) {
     return { success: false, message: 'ID de Orden de Compra requerido para actualizar.' };
   }
-  if (data.status === 'Pagado') { // Prevenir cambio a Pagado desde aquí
+  if (data.status === 'Pagado') {
     return { success: false, message: 'El estado "Pagado" solo se puede establecer desde el módulo de Pagos.' };
   }
 
@@ -257,8 +275,24 @@ export async function updatePurchaseOrder(
         'SELECT poi.inventory_item_id, poi.quantity, poi.unit_price, inv.name as itemName, inv.inventory_asset_account_id FROM purchase_order_items poi JOIN inventory_items inv ON poi.inventory_item_id = inv.id WHERE poi.purchase_order_id = ?', [id]
       );
 
-      // TODO: Reemplazar "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE" con el código real de la cuenta de Cuentas por Pagar (Proveedores) de tu plan de cuentas.
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "YOUR_DEFAULT_ACCOUNTS_PAYABLE_CODE"; // Ejemplo: "2.1.01" o "21001"
+      // TODO: CONFIGURACIÓN GLOBAL: Considera mover este código a una configuración global de la empresa en lugar de hardcodearlo.
+      // Este es el código de la cuenta de "Cuentas por Pagar a Proveedores" (Pasivo) que se usará para el crédito del asiento de compra.
+      // ASEGÚRATE DE QUE ESTE CÓDIGO EXISTA EN TU PLAN DE CUENTAS y sea de tipo 'Pasivo'.
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Ejemplo, reemplázalo por tu código real.
+
+      const [payableAccountRows] = await connection.query<RowDataPacket[]>(
+        'SELECT id, code, type FROM chart_of_accounts WHERE code = ?',
+        [DEFAULT_ACCOUNTS_PAYABLE_CODE]
+      );
+
+      if (payableAccountRows.length === 0) {
+        await connection.rollback();
+        return { success: false, message: `Error crítico: La cuenta por pagar por defecto con código '${DEFAULT_ACCOUNTS_PAYABLE_CODE}' no existe en el plan de cuentas. Por favor, configúrala o verifica el código en purchases.actions.ts.` };
+      }
+      if (payableAccountRows[0].type !== 'Pasivo') {
+        await connection.rollback();
+        return { success: false, message: `Error crítico: La cuenta por pagar por defecto '${DEFAULT_ACCOUNTS_PAYABLE_CODE}' no es de tipo 'Pasivo'. Verifica su configuración.` };
+      }
 
       for (const item of orderItemsRowsForStockAndAccounting) {
          await connection.query(
