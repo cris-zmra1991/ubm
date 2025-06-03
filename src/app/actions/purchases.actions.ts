@@ -94,7 +94,7 @@ export async function addPurchaseOrder(
     }
     
     if (status === 'Confirmada') {
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; // Proveedores (Pasivo)
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "201"; // Proveedores (Pasivo)
 
       for (const item of items) {
         await connection.query(
@@ -258,7 +258,7 @@ export async function updatePurchaseOrder(
         'SELECT poi.inventory_item_id, poi.quantity, poi.unit_price, inv.name as itemName, inv.inventory_asset_account_id FROM purchase_order_items poi JOIN inventory_items inv ON poi.inventory_item_id = inv.id WHERE poi.purchase_order_id = ?', [id]
       );
       
-      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "2.1.01"; 
+      const DEFAULT_ACCOUNTS_PAYABLE_CODE = "201"; 
 
       for (const item of orderItemsRowsForStockAndAccounting) {
          await connection.query(
