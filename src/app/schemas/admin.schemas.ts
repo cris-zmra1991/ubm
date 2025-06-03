@@ -7,6 +7,9 @@ export const CompanyInfoSchema = z.object({
   companyAddress: z.string().min(1, 'La dirección es requerida.'),
   currency: z.enum(['EUR', 'USD', 'GBP']),
   timezone: z.string().min(1, 'La zona horaria es requerida.'),
+  defaultPurchasePayableAccountId: z.coerce.number().int().positive().nullable().optional(),
+  defaultAccountsReceivableId: z.coerce.number().int().positive().nullable().optional(),
+  defaultCashBankAccountId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export const UserSchema = z.object({
@@ -14,9 +17,9 @@ export const UserSchema = z.object({
   name: z.string().min(1, 'El nombre completo es requerido.'),
   username: z.string().min(3, 'El nombre de usuario debe tener al menos 3 caracteres.'),
   email: z.string().email('Correo electrónico inválido.'),
-  role_id: z.coerce.number({invalid_type_error: 'Debe seleccionar un rol.'}).positive({message: 'Debe seleccionar un rol.'}).optional(), // Asegúrate que el ID del rol sea positivo
+  role_id: z.coerce.number({invalid_type_error: 'Debe seleccionar un rol.'}).positive({message: 'Debe seleccionar un rol.'}).optional(),
   status: z.enum(["Activo", "Inactivo"]).default("Activo"),
-  password: z.string().optional(), // Requerido para add, opcional para update
+  password: z.string().optional(), 
 });
 
 export const SecuritySettingsSchema = z.object({
@@ -31,3 +34,9 @@ export const NotificationSettingsSchema = z.object({
   lowStockNotify: z.boolean().default(true),
 });
 
+export const RolePermissionSchema = z.object({
+  roleId: z.coerce.number().int().positive('Se requiere un ID de rol válido.'),
+  permissionIds: z.array(z.coerce.number().int().positive()).default([]),
+});
+
+    

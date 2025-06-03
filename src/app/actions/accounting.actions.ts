@@ -1,4 +1,3 @@
-
 'use server';
 
 import { z } from 'zod';
@@ -17,7 +16,7 @@ export type CompanyAccountingSettingsFormInput = z.infer<typeof CompanyAccountin
 
 export interface AccountWithDetails extends AccountFormInput {
   id: string;
-  parent_account_id?: string | null;
+  parent_account_id?: string | null; // Este es el que viene de la BD
   rolledUpBalance?: number;
   children?: AccountWithDetails[];
 }
@@ -36,9 +35,9 @@ export interface FiscalYear extends FiscalYearFormInput {
     closed_by_username?: string | null;
 }
 
-const NULL_PARENT_ACC_VALUE = "NULL_PARENT_ACC_VALUE";
-const NULL_ACTIVE_FY_VALUE = "NULL_ACTIVE_FY_VALUE";
-const NULL_RETAINED_ACC_VALUE = "NULL_RETAINED_ACC_VALUE";
+const NULL_PARENT_ACC_VALUE = "##NULL_PARENT_ACCOUNT_PLACEHOLDER##";
+const NULL_ACTIVE_FY_VALUE = "##NULL_ACTIVE_FY_PLACEHOLDER##";
+const NULL_RETAINED_ACC_VALUE = "##NULL_RETAINED_ACC_PLACEHOLDER##";
 
 
 async function getCompanyInfoDetails(connection?: Connection): Promise<(CompanyInfoFormInput & {currentFiscalYearId?: number | null, retainedEarningsAccountId?: number | null}) | null> {
@@ -173,6 +172,7 @@ export async function updateAccount(
         return { success: false, message: 'Una cuenta no puede ser su propia cuenta padre.', errors: { parentAccountId: ['Selecciona una cuenta padre diferente.'] } };
     }
 
+    // No actualizar el balance directamente desde aquí, solo con asientos o cierre.
     const [result] = await pool.query<ResultSetHeader>(
       'UPDATE chart_of_accounts SET code = ?, name = ?, type = ?, parent_account_id = ? WHERE id = ?',
       [code, name, type, parentIdValue, parseInt(id)]
@@ -245,8 +245,8 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
       type: row.type,
       balance: parseFloat(row.balance),
       parentAccountId: row.parent_account_id?.toString() || null,
-      parent_account_id: row.parent_account_id?.toString() || null,
-      rolledUpBalance: parseFloat(row.balance), // Inicializa con el saldo directo
+      parent_account_id: row.parent_account_id?.toString() || null, // Asegurar que la propiedad que usa el map está
+      rolledUpBalance: parseFloat(row.balance), 
       children: [],
     }));
 
@@ -264,21 +264,34 @@ export async function getAccounts(): Promise<AccountWithDetails[]> {
       }
     });
 
+    // Función recursiva para calcular saldos acumulados
     function calculateRolledUpBalances(account: AccountWithDetails): number {
-      let sum = account.balance; 
+      let sumOfChildren = 0;
       if (account.children && account.children.length > 0) {
         for (const child of account.children) {
-          sum += calculateRolledUpBalances(child); 
+          sumOfChildren += calculateRolledUpBalances(child);
         }
       }
-      account.rolledUpBalance = sum;
-      return sum;
+      // El rolledUpBalance de una cuenta es su propio balance MÁS la suma de los rolledUpBalances de sus hijos.
+      account.rolledUpBalance = account.balance + sumOfChildren;
+      return account.rolledUpBalance;
     }
+    
+    // Disparar el cálculo desde las cuentas raíz
     rootAccounts.forEach(calculateRolledUpBalances);
     
+    // Actualizar todos los accounts en el mapa para reflejar los rolledUpBalances calculados.
+    // Esto es un poco redundante si la recursión modifica los objetos originales en el mapa (lo cual hace).
+    // Pero para estar seguros:
     accounts.forEach(acc => {
-        if (accountMap.has(acc.id)) { 
-            acc.rolledUpBalance = accountMap.get(acc.id)!.rolledUpBalance;
+        if(accountMap.has(acc.id)) {
+             const mappedAcc = accountMap.get(acc.id)!;
+             if (mappedAcc.rolledUpBalance === undefined && acc.rolledUpBalance !== undefined) {
+                 // Esto no debería suceder si la recursión funciona bien
+                 mappedAcc.rolledUpBalance = acc.rolledUpBalance;
+             } else if (mappedAcc.rolledUpBalance !== undefined) {
+                 acc.rolledUpBalance = mappedAcc.rolledUpBalance;
+             }
         }
     });
     return accounts;
@@ -507,6 +520,9 @@ export async function getAccountBalancesSummary(fiscalYearIdInput?: number): Pro
       expenseQuery += " AND je.fiscal_year_id = ?";
       queryParams.push(fiscalYearIdToQuery); 
     } else {
+      // Si no hay año fiscal para filtrar, los totales no serían significativos para un período.
+      // Podrías devolver totales globales, pero el dashboard espera del año fiscal activo.
+      console.warn("getAccountBalancesSummary: Fiscal year ID is null after attempting to find active one. Returning zero totals.");
       return { totalRevenue: 0, totalExpenses: 0, netProfit: 0 };
     }
 
@@ -543,7 +559,10 @@ export async function generateBalanceSheet(fiscalYearIdInput?: number): Promise<
 
   let fiscalYearToQuery: FiscalYear | null = null;
   if (fiscalYearIdInput) {
-      const [fyRows] = await pool.query<RowDataPacket[]>('SELECT id, name, DATE_FORMAT(start_date, "%Y-%m-%d") as startDate, DATE_FORMAT(end_date, "%Y-%m-%d") as endDate, is_closed as isClosed FROM fiscal_years WHERE id = ?', [fiscalYearIdInput]);
+      const [fyRows] = await pool.query<RowDataPacket[]>(
+          'SELECT id, name, DATE_FORMAT(start_date, "%Y-%m-%d") as startDate, DATE_FORMAT(end_date, "%Y-%m-%d") as endDate, is_closed as isClosed FROM fiscal_years WHERE id = ?',
+          [fiscalYearIdInput]
+      );
       if (fyRows.length > 0) fiscalYearToQuery = { ...fyRows[0], isClosed: Boolean(fyRows[0].isClosed) } as FiscalYear;
   } else {
       fiscalYearToQuery = await getActiveFiscalYear();
@@ -553,29 +572,34 @@ export async function generateBalanceSheet(fiscalYearIdInput?: number): Promise<
   const reportDate = fiscalYearToQuery.endDate;
 
   try {
-    const allAccounts = await getAccounts(); 
+    const allAccounts = await getAccounts(); // Esto ya calcula rolledUpBalance correctamente
 
     const assets = allAccounts.filter(acc => acc.type === 'Activo' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
     const liabilities = allAccounts.filter(acc => acc.type === 'Pasivo' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
     const equityAccounts = allAccounts.filter(acc => acc.type === 'Patrimonio' && (!acc.parentAccountId || !allAccounts.find(p => p.id === acc.parentAccountId)));
 
+    // Los rolledUpBalance ya deberían tener el signo correcto (positivo para todos si se usa Dr+/Cr+)
     const totalAssets = assets.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
     const totalLiabilities = liabilities.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
-    let totalEquityCalculated = equityAccounts.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
-
+    let totalEquityFromAccounts = equityAccounts.reduce((sum, acc) => sum + (acc.rolledUpBalance ?? 0), 0);
+    
+    let netIncomeForPeriod = 0;
     if (!fiscalYearToQuery.isClosed) {
-        const incomeStatementForPeriod = await generateIncomeStatement(fiscalYearToQuery.id);
-        totalEquityCalculated += incomeStatementForPeriod.netIncome;
+        const incomeStatementData = await generateIncomeStatement(fiscalYearToQuery.id);
+        netIncomeForPeriod = incomeStatementData.netIncome;
     }
+    
+    // El patrimonio total es el patrimonio de las cuentas de balance más el resultado del ejercicio (si no está cerrado)
+    const finalTotalEquity = totalEquityFromAccounts + netIncomeForPeriod;
     
     return {
       assets,
       liabilities,
-      equity: equityAccounts,
+      equity: equityAccounts, // Se listan las cuentas de patrimonio, su suma es totalEquityFromAccounts
       totalAssets,
-      totalLiabilities: Math.abs(totalLiabilities), 
-      totalEquity: Math.abs(totalEquityCalculated), 
-      totalLiabilitiesAndEquity: Math.abs(totalLiabilities) + Math.abs(totalEquityCalculated),
+      totalLiabilities, // Ya no se usa Math.abs()
+      totalEquity: finalTotalEquity, // Ya no se usa Math.abs() y se usa la variable actualizada
+      totalLiabilitiesAndEquity: totalLiabilities + finalTotalEquity,
       reportDate
     };
   } catch (error) {
@@ -608,7 +632,7 @@ export async function generateIncomeStatement(fiscalYearIdInput?: number): Promi
   const reportPeriod = `${fiscalYearToQuery.startDate} al ${fiscalYearToQuery.endDate}`;
 
   try {
-    const allAccounts = await getAccounts();
+    const allAccounts = await getAccounts(); // Para obtener detalles de las cuentas
     const accountMap = new Map(allAccounts.map(acc => [acc.code, acc]));
 
     const revenueQuery = `
@@ -632,8 +656,8 @@ export async function generateIncomeStatement(fiscalYearIdInput?: number): Promi
 
     const revenues: AccountWithDetails[] = revenueRows.map(r => ({
         ...(accountMap.get(r.code) || { id: r.id.toString(), code: r.code, name: r.name, type: 'Ingreso', balance: 0, parentAccountId: null }),
-        balance: parseFloat(r.period_total) || 0, 
-        rolledUpBalance: parseFloat(r.period_total) || 0 
+        balance: parseFloat(r.period_total) || 0, // Aquí 'balance' representa el total del período para esta cuenta de resultados
+        rolledUpBalance: parseFloat(r.period_total) || 0 // Para consistencia, aunque no se usa para 'enrollar' en E.R.
     }));
     const expenses: AccountWithDetails[] = expenseRows.map(e => ({
         ...(accountMap.get(e.code) || { id: e.id.toString(), code: e.code, name: e.name, type: 'Gasto', balance: 0, parentAccountId: null }),
@@ -675,7 +699,10 @@ export async function getIncomeVsExpenseChartData(months: number = 6, fiscalYear
       fiscalYearToQuery = await getActiveFiscalYear();
   }
 
-  if (!fiscalYearToQuery) return [];
+  if (!fiscalYearToQuery) {
+    console.warn("getIncomeVsExpenseChartData: No fiscal year specified or active. Returning empty data.");
+    return [];
+  }
 
 
   try {
@@ -757,11 +784,11 @@ export async function addFiscalYear(data: FiscalYearFormInput): Promise<Accounti
     }
     return { success: false, message: 'No se pudo añadir el año fiscal.' };
   } catch (error: any) {
-    console.error('Error al añadir año fiscal (MySQL):', error.message);
-     if (error.code === 'ER_DUP_ENTRY' && error.message.includes('name_UNIQUE')) { // Ajustar al nombre real del constraint si es diferente
+    console.error('Error detallado al añadir año fiscal (MySQL):', error);
+     if (error.code === 'ER_DUP_ENTRY' && error.message && error.message.includes('name_UNIQUE')) {
         return { success: false, message: 'Error: Ya existe un año fiscal con ese nombre.', errors: { name: ['Este nombre ya está en uso.'] } };
     }
-    return { success: false, message: 'Error al añadir año fiscal: ' + error.message };
+    return { success: false, message: 'Error al añadir año fiscal: ' + (error.message || 'Error desconocido.') };
   }
 }
 
@@ -789,7 +816,7 @@ export async function updateFiscalYear(id: number, data: FiscalYearFormInput): P
     return { success: false, message: 'Año fiscal no encontrado o sin cambios.' };
   } catch (error: any) { 
     console.error('Error al actualizar año fiscal (MySQL):', error.message);
-    if (error.code === 'ER_DUP_ENTRY' && error.message.includes('name_UNIQUE')) {
+    if (error.code === 'ER_DUP_ENTRY' && error.message && error.message.includes('name_UNIQUE')) {
         return { success: false, message: 'Error: Ya existe un año fiscal con ese nombre.', errors: { name: ['Este nombre ya está en uso.'] } };
     }
     return { success: false, message: 'Error al actualizar año fiscal.' }; 
@@ -816,7 +843,7 @@ export async function deleteFiscalYear(id: number): Promise<AccountingActionResp
         return { success: false, message: 'Año fiscal no encontrado.' };
     } catch (error: any) {
         console.error('Error al eliminar año fiscal:', error);
-        if (error.code === 'ER_ROW_IS_REFERENCED_2' || error.message.includes('CONSTRAINT `journal_entries_ibfk_1`')) { 
+        if (error.code === 'ER_ROW_IS_REFERENCED_2' || (error.message && error.message.includes('CONSTRAINT `journal_entries_ibfk_1`'))) { 
             return { success: false, message: 'No se puede eliminar: el año fiscal tiene asientos contables asociados.' };
         }
         return { success: false, message: 'Error al eliminar año fiscal.' };
@@ -843,9 +870,6 @@ export async function updateCompanyAccountingSettings(data: CompanyAccountingSet
 
     let { currentFiscalYearId, retainedEarningsAccountId } = validatedFields.data;
 
-    if (currentFiscalYearId === NULL_ACTIVE_FY_VALUE as any) currentFiscalYearId = null;
-    if (retainedEarningsAccountId === NULL_RETAINED_ACC_VALUE as any) retainedEarningsAccountId = null;
-
     try {
         if (currentFiscalYearId) {
             const [fyRows] = await pool.query<RowDataPacket[]>('SELECT id FROM fiscal_years WHERE id = ? AND is_closed = FALSE', [currentFiscalYearId]);
@@ -857,26 +881,18 @@ export async function updateCompanyAccountingSettings(data: CompanyAccountingSet
         }
 
         const [result] = await pool.query<ResultSetHeader>(
-            'UPDATE company_info SET current_fiscal_year_id = ?, retained_earnings_account_id = ? WHERE id = 1', 
+            'INSERT INTO company_info (id, current_fiscal_year_id, retained_earnings_account_id) VALUES (1, ?, ?) ON DUPLICATE KEY UPDATE current_fiscal_year_id = VALUES(current_fiscal_year_id), retained_earnings_account_id = VALUES(retained_earnings_account_id)',
             [currentFiscalYearId || null, retainedEarningsAccountId || null]
         );
-        if (result.affectedRows > 0) {
+
+        if (result.affectedRows > 0 || result.insertId) {
             revalidatePath('/accounting', 'layout');
             return { success: true, message: "Configuración contable actualizada.", data: validatedFields.data };
-        } else {
-             const [insertResult] = await pool.query<ResultSetHeader>(
-                'INSERT INTO company_info (id, current_fiscal_year_id, retained_earnings_account_id) VALUES (1, ?, ?) ON DUPLICATE KEY UPDATE current_fiscal_year_id = VALUES(current_fiscal_year_id), retained_earnings_account_id = VALUES(retained_earnings_account_id)',
-                [currentFiscalYearId || null, retainedEarningsAccountId || null]
-            );
-            if (insertResult.affectedRows > 0 || insertResult.insertId) {
-                 revalidatePath('/accounting', 'layout');
-                 return { success: true, message: "Configuración contable actualizada.", data: validatedFields.data };
-            }
         }
         return { success: false, message: "No se pudo actualizar la configuración." };
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error al actualizar configuración contable de la empresa:", error);
-        return { success: false, message: "Error al actualizar configuración." };
+        return { success: false, message: "Error al actualizar configuración: " + error.message };
     }
 }
 
@@ -909,26 +925,29 @@ export async function closeFiscalYearProcess(): Promise<AccountingActionResponse
             return { success: false, message: 'No se ha configurado una cuenta de Resultados Acumulados en la configuración de la empresa.' };
         }
 
+        // Obtener los movimientos de ingresos y gastos del período
         const incomeStatementData = await generateIncomeStatement(activeFiscalYear.id); 
         const closingDate = activeFiscalYear.endDate;
 
+        // Cerrar cuentas de Ingreso contra Resultados Acumulados
         for (const revenueAcc of incomeStatementData.revenues) {
             if (revenueAcc.balance !== 0) { 
-                const closingAmount = Math.abs(revenueAcc.balance); // Ingresos tienen saldo acreedor
+                const closingAmount = Math.abs(revenueAcc.balance); // Ingresos tienen saldo acreedor, se debitan para cerrar.
                 const entryResult = await addJournalEntry({
                     date: closingDate, description: `Cierre Ingresos FY ${activeFiscalYear.name}: ${revenueAcc.name}`,
                     debitAccountCode: revenueAcc.code, 
                     creditAccountCode: retainedEarningsAccount.code, 
                     amount: closingAmount,
-                    fiscalYearId: activeFiscalYear.id, entryNumber: ''
+                    fiscalYearId: activeFiscalYear.id, entryNumber: '' // entryNumber se autogenerará
                 }, connection);
                 if (!entryResult.success) throw new Error(entryResult.message || "Error al generar asiento de cierre de ingresos.");
             }
         }
 
+        // Cerrar cuentas de Gasto contra Resultados Acumulados
         for (const expenseAcc of incomeStatementData.expenses) {
              if (expenseAcc.balance !== 0) { 
-                const closingAmount = Math.abs(expenseAcc.balance); // Gastos tienen saldo deudor
+                const closingAmount = Math.abs(expenseAcc.balance); // Gastos tienen saldo deudor, se acreditan para cerrar.
                 const entryResult = await addJournalEntry({
                     date: closingDate, description: `Cierre Gastos FY ${activeFiscalYear.name}: ${expenseAcc.name}`,
                     debitAccountCode: retainedEarningsAccount.code, 
@@ -940,6 +959,7 @@ export async function closeFiscalYearProcess(): Promise<AccountingActionResponse
             }
         }
         
+        // Marcar el año fiscal como cerrado
         await connection.query(
             'UPDATE fiscal_years SET is_closed = TRUE, closed_at = CURRENT_TIMESTAMP, closed_by_user_id = ? WHERE id = ?',
             [userId, activeFiscalYear.id]
@@ -957,4 +977,3 @@ export async function closeFiscalYearProcess(): Promise<AccountingActionResponse
         if (connection) connection.release();
     }
 }
-

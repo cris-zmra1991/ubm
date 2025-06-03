@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,27 +9,33 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Settings as SettingsIcon, PlusCircle, Users, Building, Edit, Trash2, ShieldCheck, Bell, UserCog } from "lucide-react";
+import { Settings as SettingsIcon, PlusCircle, Users, Building, Edit, Trash2, ShieldCheck, Bell, UserCog, KeyRound, Loader2, ShieldAlert } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  CompanyInfoSchema, SecuritySettingsSchema, NotificationSettingsSchema, UserSchema as AdminUserSchema
+  CompanyInfoSchema, SecuritySettingsSchema, NotificationSettingsSchema, UserSchema as AdminUserSchema, RolePermissionSchema
 } from "@/app/schemas/admin.schemas";
 import {
   type CompanyInfoFormInput,
   type UserFormInput,
   type SecuritySettingsFormInput,
   type NotificationSettingsFormInput,
+  type RolePermissionFormInput,
+  type Permission, type Role as AppRole,
   updateCompanyInfo, getCompanyInfo,
   addUser, updateUser, deleteUser, getUsers, getRoles as fetchRoles,
   updateSecuritySettings, getSecuritySettings,
-  updateNotificationSettings, getNotificationSettings
+  updateNotificationSettings, getNotificationSettings,
+  getPermissions, getRolePermissions, updateRolePermissions
 } from "@/app/actions/admin.actions";
 import { useToast } from "@/hooks/use-toast";
+import { getAccounts, type AccountWithDetails } from "@/app/actions/accounting.actions";
 
 
 interface AppUser extends Omit<UserFormInput, 'role_id' | 'password'> {
@@ -40,13 +46,8 @@ interface AppUser extends Omit<UserFormInput, 'role_id' | 'password'> {
   lastLogin?: string;
 }
 
-interface Role {
-  id: number;
-  name: string;
-}
 
-
-function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: CompanyInfoFormInput, onFormSubmit: (data: CompanyInfoFormInput) => Promise<void> }) {
+function CompanyInfoForm({ defaultValues, accounts, onFormSubmit }: { defaultValues: CompanyInfoFormInput, accounts: AccountWithDetails[], onFormSubmit: (data: CompanyInfoFormInput) => Promise<void> }) {
   const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<CompanyInfoFormInput>({
     resolver: zodResolver(CompanyInfoSchema),
     defaultValues,
@@ -101,14 +102,25 @@ function CompanyInfoForm({ defaultValues, onFormSubmit }: { defaultValues: Compa
             {errors.timezone && <p className="text-sm text-destructive mt-1">{errors.timezone.message}</p>}
         </div>
       </div>
+       <Card className="border-border p-4">
+        <CardTitle className="text-md mb-2">Cuentas Contables por Defecto</CardTitle>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div><Label htmlFor="defaultPurchasePayableAccountId">Cta. Por Pagar (Compras)</Label>
+            <Controller name="defaultPurchasePayableAccountId" control={control} render={({ field }) => (<Select onValueChange={(val) => field.onChange(val ? Number(val) : null)} value={field.value?.toString() ?? ""}><SelectTrigger><SelectValue placeholder="Seleccionar..."/></SelectTrigger><SelectContent>{accounts.filter(a => a.type === 'Pasivo').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent></Select>)} />{errors.defaultPurchasePayableAccountId && <p className="text-sm text-destructive mt-1">{errors.defaultPurchasePayableAccountId.message}</p>}</div>
+            <div><Label htmlFor="defaultAccountsReceivableId">Cta. Por Cobrar (Ventas)</Label>
+            <Controller name="defaultAccountsReceivableId" control={control} render={({ field }) => (<Select onValueChange={(val) => field.onChange(val ? Number(val) : null)} value={field.value?.toString() ?? ""}><SelectTrigger><SelectValue placeholder="Seleccionar..."/></SelectTrigger><SelectContent>{accounts.filter(a => a.type === 'Activo').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent></Select>)} />{errors.defaultAccountsReceivableId && <p className="text-sm text-destructive mt-1">{errors.defaultAccountsReceivableId.message}</p>}</div>
+            <div><Label htmlFor="defaultCashBankAccountId">Cta. Caja/Banco (Pagos)</Label>
+            <Controller name="defaultCashBankAccountId" control={control} render={({ field }) => (<Select onValueChange={(val) => field.onChange(val ? Number(val) : null)} value={field.value?.toString() ?? ""}><SelectTrigger><SelectValue placeholder="Seleccionar..."/></SelectTrigger><SelectContent>{accounts.filter(a => a.type === 'Activo').map(acc => <SelectItem key={acc.id} value={acc.id.toString()}>{acc.code} - {acc.name}</SelectItem>)}</SelectContent></Select>)} />{errors.defaultCashBankAccountId && <p className="text-sm text-destructive mt-1">{errors.defaultCashBankAccountId.message}</p>}</div>
+        </div>
+      </Card>
       <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Guardando..." : "Guardar Configuración General"}</Button>
     </form>
   );
 }
 
-function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, roles: Role[], onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
+function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, roles: AppRole[], onFormSubmit: (data: UserFormInput) => Promise<void>, closeDialog: () => void}) {
     const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<UserFormInput>({
-        resolver: zodResolver(AdminUserSchema.omit(user && !(user as any).password ? { password: true} : {})), // Cast to any to access password for defaultValues
+        resolver: zodResolver(AdminUserSchema.omit(user && !(user as any).password ? { password: true} : {})), 
         defaultValues: user ? { ...user, password: '', role_id: user.role_id, name: user.name } : { name: '', username: '', email: '', role_id: undefined, status: 'Activo', password: ''},
     });
     return (
@@ -120,7 +132,7 @@ function UserForm({ user, roles, onFormSubmit, closeDialog }: { user?: AppUser, 
             <div>
                 <Label htmlFor="role_id">Rol</Label>
                 <Controller name="role_id" control={control} render={({ field }) => (
-                    <Select onValueChange={(value) => field.onChange(Number(value))} defaultValue={field.value?.toString()}>
+                    <Select onValueChange={(value) => field.onChange(value ? Number(value) : undefined)} value={field.value?.toString() ?? ""}>
                         <SelectTrigger><SelectValue placeholder="Seleccionar rol..." /></SelectTrigger>
                         <SelectContent>
                             {roles.map(r => <SelectItem key={r.id} value={r.id.toString()}>{r.name}</SelectItem>)}
@@ -198,11 +210,114 @@ function NotificationSettingsForm({ defaultValues, onFormSubmit }: { defaultValu
     );
 }
 
+function RolePermissionsForm({
+    roles,
+    allPermissions,
+    onFormSubmit,
+}: {
+    roles: AppRole[];
+    allPermissions: Permission[];
+    onFormSubmit: (data: RolePermissionFormInput) => Promise<void>;
+}) {
+    const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
+    const [rolePermissions, setRolePermissions] = useState<number[]>([]);
+    const [isLoadingPermissions, setIsLoadingPermissions] = useState(false);
+    const { toast } = useToast();
+
+    const { handleSubmit, setValue, control, formState: { isSubmitting } } = useForm<RolePermissionFormInput>({
+        resolver: zodResolver(RolePermissionSchema),
+        defaultValues: { roleId: undefined, permissionIds: [] },
+    });
+
+    useEffect(() => {
+        if (selectedRoleId) {
+            setValue("roleId", selectedRoleId);
+            setIsLoadingPermissions(true);
+            getRolePermissions(selectedRoleId)
+                .then(fetchedPermissions => {
+                    setRolePermissions(fetchedPermissions);
+                    setValue("permissionIds", fetchedPermissions);
+                })
+                .catch(() => toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar los permisos del rol." }))
+                .finally(() => setIsLoadingPermissions(false));
+        } else {
+            setRolePermissions([]);
+            setValue("permissionIds", []);
+        }
+    }, [selectedRoleId, setValue, toast]);
+
+    const handlePermissionChange = (permissionId: number, checked: boolean) => {
+        const newPermissions = checked
+            ? [...rolePermissions, permissionId]
+            : rolePermissions.filter(id => id !== permissionId);
+        setRolePermissions(newPermissions);
+        setValue("permissionIds", newPermissions);
+    };
+
+    const permissionsByModule = useMemo(() => {
+        return allPermissions.reduce((acc, permission) => {
+            (acc[permission.module] = acc[permission.module] || []).push(permission);
+            return acc;
+        }, {} as Record<string, Permission[]>);
+    }, [allPermissions]);
+
+    return (
+        <form onSubmit={handleSubmit(onFormSubmit)} className="space-y-6">
+            <div>
+                <Label htmlFor="selectedRole">Seleccionar Rol</Label>
+                <Select onValueChange={(value) => setSelectedRoleId(Number(value))} value={selectedRoleId?.toString() ?? ""}>
+                    <SelectTrigger id="selectedRole"><SelectValue placeholder="Seleccionar un rol..." /></SelectTrigger>
+                    <SelectContent>
+                        {roles.map(r => <SelectItem key={r.id} value={r.id.toString()}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            {selectedRoleId && (
+                isLoadingPermissions ? (
+                    <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Cargando permisos...</p></div>
+                ) : (
+                <ScrollArea className="h-96 rounded-md border p-4">
+                    <div className="space-y-4">
+                        {Object.entries(permissionsByModule).map(([moduleName, permissionsInModule]) => (
+                            <div key={moduleName}>
+                                <h4 className="text-md font-semibold mb-2 capitalize border-b pb-1">{moduleName.replace(/_/g, " ")}</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2">
+                                {permissionsInModule.map(permission => (
+                                    <div key={permission.id} className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id={`perm-${permission.id}`}
+                                            checked={rolePermissions.includes(permission.id)}
+                                            onCheckedChange={(checked) => handlePermissionChange(permission.id, Boolean(checked))}
+                                        />
+                                        <label htmlFor={`perm-${permission.id}`} className="text-sm font-normal cursor-pointer hover:text-primary" title={permission.description || permission.action_name}>
+                                            {permission.action_name.replace(/_/g, " ")}
+                                        </label>
+                                    </div>
+                                ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </ScrollArea>
+                )
+            )}
+            {selectedRoleId && !isLoadingPermissions && Object.keys(permissionsByModule).length === 0 && <p className="text-muted-foreground">No hay permisos definidos en el sistema.</p>}
+            
+            <Button type="submit" disabled={!selectedRoleId || isSubmitting || isLoadingPermissions}>
+                {isSubmitting ? "Guardando..." : "Guardar Permisos del Rol"}
+            </Button>
+        </form>
+    );
+}
+
 
 export default function AdminPage() {
   const [companyInfo, setCompanyInfo] = useState<CompanyInfoFormInput | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<AppRole[]>([]);
+  const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
+  const [accountingAccounts, setAccountingAccounts] = useState<AccountWithDetails[]>([]);
   const [securitySettings, setSecuritySettings] = useState<SecuritySettingsFormInput | null>(null);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsFormInput | null>(null);
 
@@ -212,18 +327,27 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   const refreshAdminData = async () => {
-      const [companyData, usersData, rolesData, securityData, notificationData] = await Promise.all([
-        getCompanyInfo(),
-        getUsers(),
-        fetchRoles(),
-        getSecuritySettings(),
-        getNotificationSettings()
-      ]);
-      if (companyData) setCompanyInfo(companyData);
-      setUsers(usersData.map(u => ({...u, password: ''})) as AppUser[]); // Ensure AppUser structure
-      setRoles(rolesData);
-      if (securityData) setSecuritySettings(securityData);
-      if (notificationData) setNotificationSettings(notificationData);
+      try {
+        const [companyData, usersData, rolesData, securityData, notificationData, permissionsData, accountsData] = await Promise.all([
+            getCompanyInfo(),
+            getUsers(),
+            fetchRoles(),
+            getSecuritySettings(),
+            getNotificationSettings(),
+            getPermissions(),
+            getAccounts()
+        ]);
+        if (companyData) setCompanyInfo(companyData);
+        setUsers(usersData.map(u => ({...u, password: ''})) as AppUser[]);
+        setRoles(rolesData);
+        setAllPermissions(permissionsData);
+        setAccountingAccounts(accountsData.filter(acc => ['Pasivo', 'Activo'].includes(acc.type)));
+        if (securityData) setSecuritySettings(securityData);
+        if (notificationData) setNotificationSettings(notificationData);
+      } catch (error) {
+          toast({ variant: "destructive", title: "Error de Carga", description: "No se pudieron cargar todos los datos de administración."})
+          console.error("Error refreshing admin data:", error);
+      }
   };
 
   useEffect(() => {
@@ -252,7 +376,7 @@ export default function AdminPage() {
     if (response.success) {
       refreshAdminData();
     }
-    setDeletingUserId(null); // Close dialog
+    setDeletingUserId(null); 
   };
 
   const openUserDialog = (user?: AppUser) => { setEditingUser(user); setIsUserDialogOpen(true); };
@@ -269,9 +393,18 @@ export default function AdminPage() {
      if (response.success && response.data) setNotificationSettings(response.data);
   };
 
+  const handleRolePermissionsSubmit = async (data: RolePermissionFormInput) => {
+    const response = await updateRolePermissions(data);
+    toast({ title: response.success ? "Éxito" : "Error", description: response.message, variant: response.success ? "default" : "destructive", errors: response.errors });
+    if(response.success) {
+        // Opcional: refrescar solo los permisos del rol o toda la data de admin
+        // refreshAdminData(); 
+    }
+  };
 
-  if (!companyInfo || !securitySettings || !notificationSettings || !roles ) { // Removed users.length > 0 check as roles should always load
-    return <div className="flex justify-center items-center h-full"><p>Cargando configuración...</p></div>;
+
+  if (!companyInfo || !securitySettings || !notificationSettings || roles.length === 0 && allPermissions.length === 0) { 
+    return <div className="flex justify-center items-center h-screen"><Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="ml-3 text-lg">Cargando configuración de administración...</p></div>;
   }
 
   return (
@@ -283,7 +416,7 @@ export default function AdminPage() {
             <div>
                 <CardTitle className="text-3xl font-bold">Configuración de Administración</CardTitle>
                 <CardDescription className="text-lg text-muted-foreground">
-                Gestiona la configuración general de la aplicación, usuarios y configuraciones del sistema.
+                Gestiona la configuración general, usuarios, roles, permisos y más.
                 </CardDescription>
             </div>
           </div>
@@ -293,15 +426,15 @@ export default function AdminPage() {
             <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 mb-6">
               <TabsTrigger value="general"><Building className="mr-2 h-4 w-4" />Configuración General</TabsTrigger>
               <TabsTrigger value="users"><Users className="mr-2 h-4 w-4" />Gestión de Usuarios</TabsTrigger>
-              <TabsTrigger value="roles"><UserCog className="mr-2 h-4 w-4" />Roles y Permisos</TabsTrigger>
+              <TabsTrigger value="roles"><KeyRound className="mr-2 h-4 w-4" />Roles y Permisos</TabsTrigger>
               <TabsTrigger value="security"><ShieldCheck className="mr-2 h-4 w-4" />Seguridad</TabsTrigger>
               <TabsTrigger value="notifications"><Bell className="mr-2 h-4 w-4" />Notificaciones</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="space-y-6">
               <Card>
-                <CardHeader><CardTitle>Información de la Empresa</CardTitle><CardDescription>Configura los detalles de tu organización.</CardDescription></CardHeader>
-                <CardContent><CompanyInfoForm defaultValues={companyInfo} onFormSubmit={handleCompanyInfoSubmit} /></CardContent>
+                <CardHeader><CardTitle>Información de la Empresa y Cuentas por Defecto</CardTitle><CardDescription>Configura los detalles de tu organización y las cuentas contables principales.</CardDescription></CardHeader>
+                <CardContent><CompanyInfoForm defaultValues={companyInfo} accounts={accountingAccounts} onFormSubmit={handleCompanyInfoSubmit} /></CardContent>
               </Card>
             </TabsContent>
 
@@ -313,19 +446,16 @@ export default function AdminPage() {
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader><TableRow>
-                    <TableHead>Nombre Completo</TableHead>
-                    <TableHead>Nombre de Usuario</TableHead>
-                    <TableHead>Correo Electrónico</TableHead>
-                    <TableHead>Rol</TableHead><TableHead>Estado</TableHead>
-                    <TableHead>Último Acceso</TableHead>
+                    <TableHead>Nombre Completo</TableHead><TableHead>Nombre de Usuario</TableHead>
+                    <TableHead>Correo Electrónico</TableHead><TableHead>Rol</TableHead>
+                    <TableHead>Estado</TableHead><TableHead>Último Acceso</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
                     {users.map(user => (
                       <TableRow key={user.id}>
                         <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell>{user.username}</TableCell>
-                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.username}</TableCell><TableCell>{user.email}</TableCell>
                         <TableCell>{user.role_name || "Sin rol"}</TableCell>
                         <TableCell><Badge variant={user.status === "Activo" ? "default" : "outline"} className={user.status === "Activo" ? "bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30" : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30"}>{user.status}</Badge></TableCell>
                         <TableCell>{user.lastLogin || "N/A"}</TableCell>
@@ -346,13 +476,16 @@ export default function AdminPage() {
 
             <TabsContent value="roles">
                 <Card>
-                    <CardHeader><CardTitle>Gestión de Roles y Permisos</CardTitle><CardDescription>Define roles y asigna permisos específicos para cada uno. (Funcionalidad en desarrollo)</CardDescription></CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
-                            <UserCog className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                            <p className="text-muted-foreground">La gestión de roles y la asignación de permisos aparecerá aquí.</p>
-                             <Button variant="secondary" className="mt-4" disabled>Gestionar Roles</Button>
-                        </div>
+                    <CardHeader><CardTitle>Gestión de Roles y Permisos</CardTitle><CardDescription>Define roles y asigna permisos específicos para cada uno.</CardDescription></CardHeader>
+                    <CardContent>
+                        {roles.length > 0 && allPermissions.length > 0 ? (
+                             <RolePermissionsForm roles={roles} allPermissions={allPermissions} onFormSubmit={handleRolePermissionsSubmit} />
+                        ) : (
+                            <div className="p-6 border-2 border-dashed border-border rounded-lg bg-muted/20 text-center">
+                                <ShieldAlert className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                                <p className="text-muted-foreground">No hay roles o permisos definidos en el sistema. Contacta al administrador para configurarlos.</p>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </TabsContent>
@@ -374,7 +507,6 @@ export default function AdminPage() {
         </CardContent>
       </Card>
 
-      {/* User Dialog */}
       <Dialog open={isUserDialogOpen} onOpenChange={setIsUserDialogOpen}>
         <DialogContent className="sm:max-w-md">
             <DialogHeader><DialogTitle>{editingUser ? "Editar Usuario" : "Añadir Nuevo Usuario"}</DialogTitle><DialogDescription>{editingUser ? "Actualiza los detalles del usuario." : "Completa los detalles del nuevo usuario."}</DialogDescription></DialogHeader>
@@ -384,3 +516,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+    
